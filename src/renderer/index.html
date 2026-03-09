@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -18,109 +18,76 @@
           <img class="brand-block__icon" src="../assets/megaf.ico" alt="MegaFala" />
           <div>
             <h1>MegaFala</h1>
-          <p class="topbar__copy">
-            Historico recente, metricas reais de uso e transcricao local em uma
-            tela simples.
-          </p>
+            <p class="topbar__copy">
+              Histórico recente, métricas reais de uso e transcrição local.
+            </p>
           </div>
         </div>
         <div class="topbar__meta">
-          <div class="phase-badge" id="phase-label">Inicializando</div>
           <div class="shortcut-meta">
             <span>Atalho global</span>
-            <strong id="shortcut-label">Ctrl + Win / Ctrl + Win + Space</strong>
+            <strong id="shortcut-label">Ctrl+Win</strong>
           </div>
           <button class="settings-button" id="open-settings" type="button">
-            Configuracoes
+            Configurações
           </button>
         </div>
       </header>
 
       <section class="metrics-row">
-        <article class="metric-card">
-          <span class="metric-card__label">Sequencia atual</span>
+        <div class="metric-card">
+          <span class="metric-card__label">Sequência</span>
           <strong id="streak-value">0 dias</strong>
-        </article>
-        <article class="metric-card">
+        </div>
+        <div class="metric-card">
           <span class="metric-card__label">Dias de uso</span>
           <strong id="days-used-value">0 dias</strong>
-        </article>
-        <article class="metric-card">
+        </div>
+        <div class="metric-card">
           <span class="metric-card__label">Palavras faladas</span>
           <strong id="words-total-value">0</strong>
-        </article>
-        <article class="metric-card">
-          <span class="metric-card__label">Media por minuto</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-card__label">Média WPM</span>
           <strong id="wpm-value">0 WPM</strong>
-        </article>
+        </div>
       </section>
 
-      <section class="workspace workspace--single">
-        <section class="main-column">
-          <article class="status-panel">
-            <div class="status-panel__main">
-              <div class="status-panel__header">
-                <div>
-                  <h2>Segure Ctrl + Win e fale normalmente</h2>
-                  <p class="status-panel__copy" id="engine-label">
-                    Carregando modelo...
-                  </p>
-                </div>
-                <span class="language-chip" id="language-badge">--</span>
-              </div>
-
-              <div class="live-panel">
-                <span class="live-panel__label">Transcricao em andamento</span>
-                <p class="live-text" id="partial-text">Aguardando fala...</p>
-              </div>
-            </div>
-
-            <dl class="status-facts">
-              <div class="status-facts__item">
-                <dt>Modelo ativo</dt>
-                <dd id="active-model-label">--</dd>
-              </div>
-              <div class="status-facts__item">
-                <dt>Processamento</dt>
-                <dd id="device-label">--</dd>
-              </div>
-              <div class="status-facts__item status-facts__item--wide">
-                <dt>Backend</dt>
-                <dd id="device-note">Sem observacoes.</dd>
-              </div>
-            </dl>
-          </article>
-
-          <article class="panel transcripts-panel">
+      <section class="workspace">
+        <div class="main-column">
+          <article class="transcripts-panel">
             <div class="section-head">
               <div>
-                <h2>Ultimas transcricoes</h2>
+                <h2>Últimas transcrições</h2>
                 <p class="section-head__copy">
-                  As 100 mais recentes ficam disponiveis para copiar a qualquer
-                  momento.
+                  Histórico local das últimas 100 mensagens.
                 </p>
               </div>
               <span class="section-count" id="history-count">0 mensagens</span>
             </div>
+
             <div class="history-toolbar">
               <label class="search-field" for="history-search">
                 <span>Pesquisar</span>
                 <input
                   id="history-search"
                   type="search"
-                  placeholder="Buscar palavras nas transcricoes"
+                  placeholder="Buscar palavras nas transcrições..."
                   autocomplete="off"
                 />
               </label>
             </div>
+
             <div class="history-list" id="history-list">
-              <div class="history-empty">Nenhuma transcricao ainda.</div>
+              <div class="history-empty">Nenhuma transcrição ainda.</div>
             </div>
           </article>
-        </section>
+        </div>
       </section>
 
-      <section class="notice hidden" id="notice-strip"></section>
+      <section class="toast-layer" aria-live="polite" aria-atomic="true">
+        <section class="toast hidden" id="notice-strip"></section>
+      </section>
 
       <div class="settings-backdrop hidden" id="settings-backdrop"></div>
       <aside
@@ -131,10 +98,9 @@
       >
         <div class="settings-drawer__header">
           <div>
-            <span class="settings-eyebrow">Ajustes</span>
-            <h2 id="settings-title">Configuracoes</h2>
+            <h2 id="settings-title">Configurações</h2>
             <p class="section-head__copy">
-              Controle a barra flutuante, os idiomas ativos e o modelo de ditado.
+              Ajustes de aparência, idiomas e modelo de IA.
             </p>
           </div>
           <button class="secondary-button" id="close-settings" type="button">
@@ -143,20 +109,35 @@
         </div>
 
         <div class="settings-stack">
-          <article class="panel panel--settings">
-            <div class="section-head section-head--compact">
+          <div class="panel--settings">
+            <div class="section-head">
               <div>
-                <h2>Barra flutuante</h2>
-                <p class="section-head__copy">
-                  Mostra o indicador visual de gravacao acima de qualquer app.
-                </p>
+                <h2>Aparência</h2>
+              </div>
+            </div>
+            <div class="language-grid">
+              <label class="language-option">
+                <input type="radio" name="theme" value="dark" checked />
+                <span>Modo Escuro</span>
+              </label>
+              <label class="language-option">
+                <input type="radio" name="theme" value="light" />
+                <span>Modo Claro</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2>Barra Flutuante</h2>
               </div>
             </div>
             <label class="toggle-card" for="show-overlay-bar">
               <div>
                 <strong>Exibir overlay global</strong>
                 <p>
-                  Durante a gravacao aparece a animacao de audio. Ao soltar, ele mostra carregamento.
+                  Mostra o indicador visual de gravação acima de qualquer app.
                 </p>
               </div>
               <span class="toggle-switch">
@@ -164,43 +145,59 @@
                 <span></span>
               </span>
             </label>
-          </article>
+          </div>
 
-          <article class="panel panel--settings">
-            <div class="section-head section-head--compact">
+          <div class="panel--settings">
+            <div class="section-head">
               <div>
-                <h2>Idiomas ativos</h2>
-                <p class="section-head__copy">
-                  Limite a deteccao ao idioma que voce realmente usa.
-                </p>
+                <h2>Idiomas de Detecção</h2>
               </div>
             </div>
             <div class="language-grid">
               <label class="language-option">
                 <input id="lang-pt" type="checkbox" value="pt" />
-                <span>Portugues</span>
+                <span>Português</span>
               </label>
               <label class="language-option">
                 <input id="lang-en" type="checkbox" value="en" />
                 <span>English</span>
               </label>
             </div>
-          </article>
+          </div>
 
-          <article class="panel panel--settings">
-            <div class="section-head section-head--compact">
+          <div class="panel--settings">
+            <div class="section-head">
               <div>
-                <h2>Modelos</h2>
-                <p class="section-head__copy">
-                  Troque o modelo e acompanhe a velocidade media de cada um.
-                </p>
+                <h2>Modelos de Transcrição</h2>
               </div>
               <button class="secondary-button" id="reset-stats" type="button">
-                Resetar
+                Resetar Média
               </button>
             </div>
             <div class="model-list" id="model-list"></div>
-          </article>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2>Diagnóstico do Sistema</h2>
+              </div>
+            </div>
+            <dl class="status-facts">
+              <div class="status-facts__item">
+                <dt>Modelo ativo</dt>
+                <dd id="active-model-label">--</dd>
+              </div>
+              <div class="status-facts__item">
+                <dt>Processamento</dt>
+                <dd id="device-label">--</dd>
+              </div>
+              <div class="status-facts__item">
+                <dt>Backend</dt>
+                <dd id="device-note">Sem observações.</dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </aside>
     </main>

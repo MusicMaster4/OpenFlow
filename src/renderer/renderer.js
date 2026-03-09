@@ -1,18 +1,9 @@
-const phaseMap = {
-  booting: 'Inicializando',
-  idle: 'Pronto',
-  listening: 'Escutando',
-  transcribing: 'Transcrevendo',
-  offline: 'Offline',
-  error: 'Erro',
-};
-
 const modelLabelMap = {
   tiny: 'Lite',
-  base: 'Rapido',
+  base: 'Rápido',
   small: 'Equilibrado',
   medium: 'Preciso',
-  'large-v3': 'Maximo',
+  'large-v3': 'Máximo',
 };
 
 const compactNumber = new Intl.NumberFormat('pt-BR', {
@@ -25,15 +16,11 @@ const integerNumber = new Intl.NumberFormat('pt-BR', {
 });
 
 const els = {
-  phaseLabel: document.getElementById('phase-label'),
-  engineLabel: document.getElementById('engine-label'),
-  partialText: document.getElementById('partial-text'),
   historyList: document.getElementById('history-list'),
   historyCount: document.getElementById('history-count'),
   historySearch: document.getElementById('history-search'),
   shortcutLabel: document.getElementById('shortcut-label'),
   noticeStrip: document.getElementById('notice-strip'),
-  languageBadge: document.getElementById('language-badge'),
   langPt: document.getElementById('lang-pt'),
   langEn: document.getElementById('lang-en'),
   modelList: document.getElementById('model-list'),
@@ -50,6 +37,7 @@ const els = {
   settingsDrawer: document.getElementById('settings-drawer'),
   settingsBackdrop: document.getElementById('settings-backdrop'),
   showOverlayBar: document.getElementById('show-overlay-bar'),
+  themeRadios: document.querySelectorAll('input[name="theme"]'),
 };
 
 let renderedHistory = [];
@@ -57,8 +45,29 @@ let historyFilter = '';
 let lastState = null;
 let settingsOpen = false;
 let settingsCloseTimer = null;
+let toastHideTimer = null;
 
-const SETTINGS_CLOSE_DELAY_MS = 170;
+const SETTINGS_CLOSE_DELAY_MS = 500;
+const TOAST_HIDE_DELAY_MS = 3200;
+
+function initTheme() {
+  const savedTheme = localStorage.getItem('megafala-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  
+  for (const radio of els.themeRadios) {
+    if (radio.value === savedTheme) {
+      radio.checked = true;
+    }
+    
+    radio.addEventListener('change', (e) => {
+      if (e.target.checked) {
+        const newTheme = e.target.value;
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('megafala-theme', newTheme);
+      }
+    });
+  }
+}
 
 function escapeHtml(value) {
   return String(value || '')
@@ -91,16 +100,7 @@ function formatShortcut(shortcut) {
       }
       return token.length === 1 ? token.toUpperCase() : token;
     })
-    .join(' + ');
-}
-
-function formatShortcutGuide(shortcut) {
-  const baseShortcut = formatShortcut(shortcut);
-  if (!baseShortcut) {
-    return '--';
-  }
-
-  return `${baseShortcut} / ${baseShortcut} + Space`;
+    .join('+');
 }
 
 function formatLanguage(language) {
@@ -126,14 +126,6 @@ function formatMs(ms) {
 
 function formatModel(modelId) {
   return modelLabelMap[modelId] || modelId || '--';
-}
-
-function getPhaseLabel(state) {
-  if (state.phase === 'listening' && state.captureMode === 'hands-free') {
-    return 'Hands-Free';
-  }
-
-  return phaseMap[state.phase] || state.phase || 'Pronto';
 }
 
 function formatDaysLabel(value) {
@@ -173,13 +165,13 @@ function renderHistory(history, historyTotal) {
   renderedHistory = getFilteredHistory(sourceHistory);
 
   if (sourceHistory.length === 0) {
-    els.historyList.innerHTML = '<div class="history-empty">Nenhuma transcricao ainda.</div>';
+    els.historyList.innerHTML = '<div class="history-empty">Nenhuma transcrição ainda.</div>';
     els.historyCount.textContent = '0 mensagens';
     return;
   }
 
   if (renderedHistory.length === 0) {
-    els.historyList.innerHTML = '<div class="history-empty">Nenhuma transcricao encontrada para essa busca.</div>';
+    els.historyList.innerHTML = '<div class="history-empty">Nenhuma transcrição encontrada para essa busca.</div>';
     els.historyCount.textContent = '0 resultados';
     return;
   }
@@ -250,7 +242,7 @@ function renderModels(state) {
           </div>
           <p>${escapeHtml(option.description)}</p>
           <div class="model-card__stats">
-            <span>Media ${escapeHtml(formatMs(itemStats.averageMs))}</span>
+            <span>Média ${escapeHtml(formatMs(itemStats.averageMs))}</span>
             <span>${integerNumber.format(itemStats.count || 0)} usos</span>
           </div>
         </button>
@@ -270,23 +262,51 @@ function renderModels(state) {
   }
 }
 
+function hideToast() {
+  if (toastHideTimer) {
+    window.clearTimeout(toastHideTimer);
+    toastHideTimer = null;
+  }
+
+  els.noticeStrip.classList.remove('is-visible', 'toast--warning', 'toast--error');
+  els.noticeStrip.classList.add('hidden');
+  els.noticeStrip.textContent = '';
+}
+
+function showToast(message, tone = 'warning', autoHide = true) {
+  if (!message) {
+    hideToast();
+    return;
+  }
+
+  if (toastHideTimer) {
+    window.clearTimeout(toastHideTimer);
+    toastHideTimer = null;
+  }
+
+  els.noticeStrip.textContent = message;
+  els.noticeStrip.classList.remove('hidden', 'toast--warning', 'toast--error');
+  els.noticeStrip.classList.add(tone === 'error' ? 'toast--error' : 'toast--warning');
+
+  window.requestAnimationFrame(() => {
+    els.noticeStrip.classList.add('is-visible');
+  });
+
+  if (autoHide) {
+    toastHideTimer = window.setTimeout(() => {
+      hideToast();
+    }, TOAST_HIDE_DELAY_MS);
+  }
+}
+
 function renderState(state) {
   lastState = state;
-  const label = getPhaseLabel(state);
   const device = state.device ? String(state.device).toUpperCase() : '--';
 
-  els.phaseLabel.textContent = label;
-  els.phaseLabel.dataset.phase = state.phase;
-  els.engineLabel.textContent = state.engineReady
-    ? `Modelo ${formatModel(state.model)} (${state.model}) carregado para ditado local.`
-    : `Carregando modelo ${formatModel(state.model)}...`;
-  els.partialText.textContent = state.partial || 'Aguardando fala...';
-  els.partialText.dataset.empty = state.partial ? 'false' : 'true';
-  els.shortcutLabel.textContent = formatShortcutGuide(state.shortcut);
-  els.languageBadge.textContent = formatLanguage(state.latestLanguage);
+  els.shortcutLabel.textContent = formatShortcut(state.shortcut) || '--';
   els.activeModelLabel.textContent = `${formatModel(state.model)} (${state.model})`;
   els.deviceLabel.textContent = device;
-  els.deviceNote.textContent = state.deviceNote || 'Sem observacoes.';
+  els.deviceNote.textContent = state.deviceNote || 'Sem observações.';
 
   renderUsageSummary(state.usageSummary);
   renderLanguages(state.allowedLanguages);
@@ -295,17 +315,11 @@ function renderState(state) {
   renderHistory(state.history, state.historyTotal);
 
   if (state.error) {
-    els.noticeStrip.textContent = state.error;
-    els.noticeStrip.classList.remove('notice--warning');
-    els.noticeStrip.classList.remove('hidden');
+    showToast(state.error, 'error', false);
   } else if (state.notice) {
-    els.noticeStrip.textContent = state.notice;
-    els.noticeStrip.classList.add('notice--warning');
-    els.noticeStrip.classList.remove('hidden');
+    showToast(state.notice, 'warning', true);
   } else {
-    els.noticeStrip.textContent = '';
-    els.noticeStrip.classList.remove('notice--warning');
-    els.noticeStrip.classList.add('hidden');
+    hideToast();
   }
 }
 
@@ -415,6 +429,7 @@ function setupHandlers() {
 }
 
 async function bootstrap() {
+  initTheme();
   const initialState = await window.flowLocal.getState();
   renderState(initialState);
 
