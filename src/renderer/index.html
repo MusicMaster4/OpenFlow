@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flow Local</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Flow Local</h1>
+          <p class="topbar__copy">
+            Historico recente, metricas reais de uso e transcricao local em uma
+            tela simples.
+          </p>
+        </div>
+        <div class="topbar__meta">
+          <div class="phase-badge" id="phase-label">Inicializando</div>
+          <div class="shortcut-meta">
+            <span>Atalho global</span>
+            <strong id="shortcut-label">Ctrl + Shift + Space</strong>
+          </div>
+        </div>
+      </header>
+
+      <section class="metrics-row">
+        <article class="metric-card">
+          <span class="metric-card__label">Sequencia atual</span>
+          <strong id="streak-value">0 dias</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-card__label">Dias de uso</span>
+          <strong id="days-used-value">0 dias</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-card__label">Palavras faladas</span>
+          <strong id="words-total-value">0</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-card__label">Media por minuto</span>
+          <strong id="wpm-value">0 WPM</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <section class="main-column">
+          <article class="status-panel">
+            <div class="status-panel__main">
+              <div class="status-panel__header">
+                <div>
+                  <h2>Segure o atalho e fale normalmente</h2>
+                  <p class="status-panel__copy" id="engine-label">
+                    Carregando modelo...
+                  </p>
+                </div>
+                <span class="language-chip" id="language-badge">--</span>
+              </div>
+
+              <div class="live-panel">
+                <span class="live-panel__label">Transcricao em andamento</span>
+                <p class="live-text" id="partial-text">Aguardando fala...</p>
+              </div>
+            </div>
+
+            <dl class="status-facts">
+              <div class="status-facts__item">
+                <dt>Modelo ativo</dt>
+                <dd id="active-model-label">--</dd>
+              </div>
+              <div class="status-facts__item">
+                <dt>Processamento</dt>
+                <dd id="device-label">--</dd>
+              </div>
+              <div class="status-facts__item status-facts__item--wide">
+                <dt>Backend</dt>
+                <dd id="device-note">Sem observacoes.</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article class="panel transcripts-panel">
+            <div class="section-head">
+              <div>
+                <h2>Ultimas transcricoes</h2>
+                <p class="section-head__copy">
+                  As 100 mais recentes ficam disponiveis para copiar a qualquer
+                  momento.
+                </p>
+              </div>
+              <span class="section-count" id="history-count">0 mensagens</span>
+            </div>
+            <div class="history-toolbar">
+              <label class="search-field" for="history-search">
+                <span>Pesquisar</span>
+                <input
+                  id="history-search"
+                  type="search"
+                  placeholder="Buscar palavras nas transcricoes"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+            <div class="history-list" id="history-list">
+              <div class="history-empty">Nenhuma transcricao ainda.</div>
+            </div>
+          </article>
+        </section>
+
+        <aside class="side-column">
+          <article class="panel">
+            <div class="section-head section-head--compact">
+              <div>
+                <h2>Idiomas ativos</h2>
+                <p class="section-head__copy">
+                  Limite a deteccao ao idioma que voce realmente usa.
+                </p>
+              </div>
+            </div>
+            <div class="language-grid">
+              <label class="language-option">
+                <input id="lang-pt" type="checkbox" value="pt" />
+                <span>Portugues</span>
+              </label>
+              <label class="language-option">
+                <input id="lang-en" type="checkbox" value="en" />
+                <span>English</span>
+              </label>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="section-head section-head--compact">
+              <div>
+                <h2>Modelos</h2>
+                <p class="section-head__copy">
+                  Troque o modelo e acompanhe a velocidade media de cada um.
+                </p>
+              </div>
+              <button class="secondary-button" id="reset-stats" type="button">
+                Resetar
+              </button>
+            </div>
+            <div class="model-list" id="model-list"></div>
+          </article>
+        </aside>
+      </section>
+
+      <section class="notice hidden" id="notice-strip"></section>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
