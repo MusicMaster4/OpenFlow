@@ -11,9 +11,11 @@ const DEFAULT_LANGUAGES = ['pt', 'en'];
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const MAX_HISTORY = 100;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
-const OVERLAY_WIDTH = 304;
-const OVERLAY_HEIGHT = 78;
+const OVERLAY_WIDTH = 248;
+const OVERLAY_HEIGHT = 58;
 const OVERLAY_MARGIN_BOTTOM = 22;
+const APP_NAME = 'MegaFala';
+const APP_ID = 'com.megafala.app';
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -231,12 +233,34 @@ function normalizeStats(stats) {
   return empty;
 }
 
+function normalizeOverlayPosition(position) {
+  if (!position || typeof position !== 'object') {
+    return null;
+  }
+
+  const x = Number(position.x);
+  const y = Number(position.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+
+  return {
+    x: Math.round(x),
+    y: Math.round(y),
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 function getDefaultsFromEnv() {
   return {
     shortcut: String(process.env.FLOW_HOTKEY || DEFAULT_SHORTCUT).toLowerCase(),
     allowedLanguages: normalizeLanguages(process.env.ALLOWED_LANGUAGES || DEFAULT_LANGUAGES.join(',')),
     model: normalizeModel(getDefaultModel()),
     showOverlayBar: DEFAULT_SHOW_OVERLAY_BAR,
+    overlayPosition: null,
   };
 }
 
@@ -266,8 +290,11 @@ const state = {
   history: [],
   usageStats: createEmptyUsageStats(),
   showOverlayBar: defaults.showOverlayBar,
+  overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
 };
+
+app.setName(APP_NAME);
 
 function getProjectRoot() {
   return app.getAppPath();
@@ -276,6 +303,10 @@ function getProjectRoot() {
 function getPythonBin() {
   const venvPython = path.join(getProjectRoot(), '.venv', 'Scripts', 'python.exe');
   return process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : 'python');
+}
+
+function getAppIconPath() {
+  return path.join(getProjectRoot(), 'src', 'assets', 'megaf.ico');
 }
 
 function getSettingsPath() {
@@ -296,6 +327,7 @@ function loadUserSettings() {
         typeof parsed.showOverlayBar === 'boolean'
           ? parsed.showOverlayBar
           : defaults.showOverlayBar,
+      overlayPosition: normalizeOverlayPosition(parsed.overlayPosition),
     };
   } catch (_error) {
     return {
@@ -305,6 +337,7 @@ function loadUserSettings() {
       history: [],
       usageStats: createEmptyUsageStats(),
       showOverlayBar: defaults.showOverlayBar,
+      overlayPosition: defaults.overlayPosition,
     };
   }
 }
@@ -317,6 +350,7 @@ function saveUserSettings() {
     history: state.history,
     usageStats: state.usageStats,
     showOverlayBar: state.showOverlayBar,
+    overlayPosition: state.overlayPosition,
   };
 
   fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
@@ -330,7 +364,8 @@ function createWindow() {
     minWidth: 980,
     minHeight: 720,
     autoHideMenuBar: true,
-    title: 'Flow Local',
+    title: APP_NAME,
+    icon: getAppIconPath(),
     backgroundColor: '#f4f1eb',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -348,25 +383,51 @@ function createWindow() {
   });
 }
 
-function getOverlayBounds() {
-  const point = screen.getCursorScreenPoint();
+function getOverlayBounds(preferredPosition = state.overlayPosition) {
+  const normalizedPosition = normalizeOverlayPosition(preferredPosition);
+  const point = normalizedPosition
+    ? {
+        x: normalizedPosition.x + Math.round(OVERLAY_WIDTH / 2),
+        y: normalizedPosition.y + Math.round(OVERLAY_HEIGHT / 2),
+      }
+    : screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(point);
   const { workArea } = display;
+  const defaultPosition = {
+    x: Math.round(workArea.x + (workArea.width - OVERLAY_WIDTH) / 2),
+    y: Math.round(workArea.y + workArea.height - OVERLAY_HEIGHT - OVERLAY_MARGIN_BOTTOM),
+  };
+  const target = normalizedPosition || defaultPosition;
+  const maxX = workArea.x + Math.max(0, workArea.width - OVERLAY_WIDTH);
+  const maxY = workArea.y + Math.max(0, workArea.height - OVERLAY_HEIGHT);
 
   return {
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
-    x: Math.round(workArea.x + (workArea.width - OVERLAY_WIDTH) / 2),
-    y: Math.round(workArea.y + workArea.height - OVERLAY_HEIGHT - OVERLAY_MARGIN_BOTTOM),
+    x: clamp(target.x, workArea.x, maxX),
+    y: clamp(target.y, workArea.y, maxY),
   };
 }
 
-function positionOverlayWindow() {
+function positionOverlayWindow(preferredPosition = state.overlayPosition, persist = false) {
   if (!overlayWindow || overlayWindow.isDestroyed()) {
-    return;
+    return null;
   }
 
-  overlayWindow.setBounds(getOverlayBounds(), false);
+  const bounds = getOverlayBounds(preferredPosition);
+  overlayWindow.setBounds(bounds, false);
+
+  if (persist) {
+    setState({
+      overlayPosition: {
+        x: bounds.x,
+        y: bounds.y,
+      },
+    });
+    saveUserSettings();
+  }
+
+  return bounds;
 }
 
 function syncOverlayWindow() {
@@ -389,10 +450,11 @@ function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
+    icon: getAppIconPath(),
     frame: false,
     transparent: true,
     resizable: false,
-    movable: false,
+    movable: true,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -410,7 +472,7 @@ function createOverlayWindow() {
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  overlayWindow.setIgnoreMouseEvents(false);
   overlayWindow.setMenuBarVisibility(false);
   overlayWindow.loadFile(path.join(getProjectRoot(), 'src', 'renderer', 'overlay.html'));
 
@@ -1049,8 +1111,16 @@ function shutdownChildren() {
 ipcMain.handle('get-state', async () => snapshotState());
 ipcMain.handle('update-settings', async (_event, patch) => applySettings(patch || {}));
 ipcMain.handle('reset-model-stats', async () => resetModelStats());
+ipcMain.on('overlay-drag-move', (_event, position) => {
+  positionOverlayWindow(position);
+});
+ipcMain.on('overlay-drag-end', (_event, position) => {
+  positionOverlayWindow(position, true);
+});
 
 app.whenReady().then(() => {
+  app.setAppUserModelId(APP_ID);
+
   const userSettings = loadUserSettings();
   setState({
     allowedLanguages: userSettings.allowedLanguages,
@@ -1059,6 +1129,7 @@ app.whenReady().then(() => {
     history: userSettings.history,
     usageStats: userSettings.usageStats,
     showOverlayBar: userSettings.showOverlayBar,
+    overlayPosition: userSettings.overlayPosition,
   });
 
   createWindow();

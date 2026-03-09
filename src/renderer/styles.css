@@ -59,6 +59,20 @@ input {
   gap: 20px;
 }
 
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-block__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex: 0 0 auto;
+  box-shadow: 0 10px 24px rgba(38, 28, 17, 0.12);
+}
+
 .topbar h1,
 .section-head h2,
 .status-panel h2 {
@@ -671,6 +685,10 @@ input {
 
   .topbar {
     display: grid;
+  }
+
+  .brand-block {
+    align-items: flex-start;
   }
 
   .topbar__meta {

@@ -1,11 +1,19 @@
 {
-  "name": "wispr-flow-clone-mvp",
+  "name": "megafala",
+  "productName": "MegaFala",
   "version": "0.1.0",
-  "description": "Windows desktop dictation MVP inspired by Wispr Flow using Electron and Faster-Whisper.",
+  "description": "Windows desktop dictation app MegaFala using Electron and Faster-Whisper.",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
     "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/overlay.js"
+  },
+  "build": {
+    "appId": "com.megafala.app",
+    "productName": "MegaFala",
+    "win": {
+      "icon": "src/assets/megaf.ico"
+    }
   },
   "license": "MIT",
   "devDependencies": {

@@ -1,6 +1,6 @@
-# Flow Local MVP
+# MegaFala
 
-App desktop para Windows inspirado no Wispr Flow, com Electron na interface e Faster-Whisper rodando localmente.
+App desktop para Windows MegaFala, com Electron na interface e Faster-Whisper rodando localmente.
 
 ## O que mudou
 
