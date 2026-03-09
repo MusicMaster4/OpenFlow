@@ -16,15 +16,19 @@ class HotkeyListener:
         self.paste_last_hotkey = "ctrl+alt+v"
         self.stop_event = threading.Event()
         self.is_pressed = False
+        self.paste_last_active = False
         self.active_mode = "hold"
         self.state_lock = threading.Lock()
         self.event_hook = None
-        self.suppress_hooks: list[object] = []
         self.pressed_scan_codes: set[int] = set()
         steps = keyboard.parse_hotkey_combinations(self.hotkey)
         if len(steps) != 1:
             raise RuntimeError("Apenas atalhos globais de uma etapa sao suportados.")
         self.hotkey_combinations = [set(combination) for combination in steps[0]]
+        paste_steps = keyboard.parse_hotkey_combinations(self.paste_last_hotkey)
+        if len(paste_steps) != 1:
+            raise RuntimeError("O atalho de colar a ultima transcricao deve ter apenas uma etapa.")
+        self.paste_last_combinations = [set(combination) for combination in paste_steps[0]]
         self.space_scan_codes = self._resolve_scan_codes("space")
         self.escape_scan_codes = self._resolve_scan_codes("esc", "escape")
 
@@ -34,24 +38,6 @@ class HotkeyListener:
     def start(self) -> None:
         if not self.hotkey_combinations:
             raise RuntimeError(f"Atalho invalido: {self.hotkey}")
-
-        for hotkey in {self.hotkey, self.hands_free_hotkey}:
-            self.suppress_hooks.append(
-                keyboard.add_hotkey(
-                    hotkey,
-                    lambda: None,
-                    suppress=True,
-                    trigger_on_release=False,
-                )
-            )
-        self.suppress_hooks.append(
-            keyboard.add_hotkey(
-                self.paste_last_hotkey,
-                lambda: self.emit("paste-last-requested", {"shortcut": self.paste_last_hotkey}),
-                suppress=True,
-                trigger_on_release=True,
-            )
-        )
         self.event_hook = keyboard.hook(self._handle_key_event)
         self.emit("ready", {"shortcut": self.hotkey})
 
@@ -59,14 +45,13 @@ class HotkeyListener:
         self.stop_event.set()
 
     def cleanup(self) -> None:
-        keyboard.clear_all_hotkeys()
         if self.event_hook is not None:
             keyboard.unhook(self.event_hook)
         self.is_pressed = False
+        self.paste_last_active = False
         self.active_mode = "hold"
         self.pressed_scan_codes.clear()
         self.event_hook = None
-        self.suppress_hooks.clear()
 
     @staticmethod
     def _resolve_scan_codes(*keys: str) -> set[int]:
@@ -98,7 +83,16 @@ class HotkeyListener:
             combo_active = any(
                 combination.issubset(self.pressed_scan_codes) for combination in self.hotkey_combinations
             )
+            paste_last_active = any(
+                combination.issubset(self.pressed_scan_codes) for combination in self.paste_last_combinations
+            )
             wants_hands_free = bool(self.space_scan_codes & self.pressed_scan_codes)
+
+            if paste_last_active and not self.paste_last_active:
+                self.paste_last_active = True
+                self.emit("paste-last-requested", {"shortcut": self.paste_last_hotkey})
+            elif not paste_last_active and self.paste_last_active:
+                self.paste_last_active = False
 
             if combo_active and not self.is_pressed:
                 self.is_pressed = True
