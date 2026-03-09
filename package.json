@@ -6,18 +6,56 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/overlay.js"
+    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/overlay.js",
+    "build:python": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-python.ps1",
+    "dist:win": "npm run build:python && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.megafala.app",
     "productName": "MegaFala",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "package.json",
+      ".env.example",
+      "!python/**/*",
+      "!scripts/build-python.ps1",
+      "!build/**/*",
+      "!dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/python-dist/dictation_service",
+        "to": "bin/dictation_service",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/python-dist/hotkey_listener",
+        "to": "bin/hotkey_listener",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "scripts",
+        "to": "scripts",
+        "filter": [
+          "send_text.ps1",
+          "system_audio_controller.ps1"
+        ]
+      }
+    ],
     "win": {
+      "target": "nsis",
       "icon": "src/assets/megaf.ico"
     }
   },
   "license": "MIT",
   "devDependencies": {
-    "electron": "^37.2.0"
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "dotenv": "^17.3.1"

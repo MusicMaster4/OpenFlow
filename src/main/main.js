@@ -229,7 +229,7 @@ let suppressStartRequestsUntil = 0;
 let ignoreNextHotkeyRelease = false;
 
 function getDefaultModel() {
-  return process.env.WHISPER_MODEL || 'medium';
+  return process.env.WHISPER_MODEL || 'small';
 }
 
 function normalizeLanguageSelection(input, supportedLanguages, fallbackLanguages) {
@@ -700,13 +700,35 @@ rebuildDictionaryReplacementIndex(defaults.dictionaryEntries);
 
 app.setName(APP_NAME);
 
-function getProjectRoot() {
+function getAppCodePath() {
   return app.getAppPath();
+}
+
+function getRuntimeBasePath() {
+  return app.isPackaged ? process.resourcesPath : getAppCodePath();
+}
+
+function getProjectRoot() {
+  return getAppCodePath();
 }
 
 function getPythonBin() {
   const venvPython = path.join(getProjectRoot(), '.venv', 'Scripts', 'python.exe');
   return process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : 'python');
+}
+
+function getWorkerLaunchSpec(workerName) {
+  if (app.isPackaged) {
+    return {
+      command: path.join(getRuntimeBasePath(), 'bin', workerName, `${workerName}.exe`),
+      args: [],
+    };
+  }
+
+  return {
+    command: getPythonBin(),
+    args: ['-u', path.join(getProjectRoot(), 'python', `${workerName}.py`)],
+  };
 }
 
 function getAppIconPath() {
@@ -723,6 +745,15 @@ function getLegacySettingsPath() {
 
 function getStorageDirectory() {
   return path.join(app.getPath('userData'), 'store');
+}
+
+function getModelsDirectory() {
+  return path.join(app.getPath('userData'), 'models');
+}
+
+function ensureRuntimeDirectories() {
+  fs.mkdirSync(getStorageDirectory(), { recursive: true });
+  fs.mkdirSync(getModelsDirectory(), { recursive: true });
 }
 
 function createEmptyPersistedState() {
@@ -1003,8 +1034,11 @@ function getServiceEnv() {
   return {
     ...process.env,
     WHISPER_MODEL: state.model,
+    WHISPER_MODEL_DIR: getModelsDirectory(),
     ALLOWED_LANGUAGES: state.allowedLanguages.join(','),
     FLOW_HOTKEY: state.shortcut,
+    HF_HOME: path.join(getModelsDirectory(), 'hf-home'),
+    HUGGINGFACE_HUB_CACHE: path.join(getModelsDirectory(), 'hub'),
     HF_HUB_DISABLE_SYMLINKS_WARNING: '1',
     HF_HUB_DISABLE_PROGRESS_BARS: '1',
     PYTHONIOENCODING: 'utf-8',
@@ -1124,7 +1158,7 @@ function isCurrentDictationSession(sessionId) {
 
 function insertTextIntoFocusedApp(text) {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(getProjectRoot(), 'scripts', 'send_text.ps1');
+    const scriptPath = path.join(getRuntimeBasePath(), 'scripts', 'send_text.ps1');
     const encodedText = Buffer.from(text, 'utf8').toString('base64');
     const powershell = spawn(
       'powershell.exe',
@@ -1154,7 +1188,7 @@ function insertTextIntoFocusedApp(text) {
 }
 
 function getSystemAudioControllerScriptPath() {
-  return path.join(getProjectRoot(), 'scripts', 'system_audio_controller.ps1');
+  return path.join(getRuntimeBasePath(), 'scripts', 'system_audio_controller.ps1');
 }
 
 function sendOverlayFeedback(type, payload = {}) {
@@ -1727,7 +1761,7 @@ function bootAudioController() {
     'powershell.exe',
     ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', powershellScript],
     {
-      cwd: getProjectRoot(),
+      cwd: getRuntimeBasePath(),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     },
@@ -1780,10 +1814,10 @@ function bootAudioController() {
 }
 
 function bootDictationService() {
-  const pythonScript = path.join(getProjectRoot(), 'python', 'dictation_service.py');
+  const launchSpec = getWorkerLaunchSpec('dictation_service');
   const localToken = ++serviceToken;
-  const localProcess = spawn(getPythonBin(), ['-u', pythonScript], {
-    cwd: getProjectRoot(),
+  const localProcess = spawn(launchSpec.command, launchSpec.args, {
+    cwd: getRuntimeBasePath(),
     env: getServiceEnv(),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -1887,10 +1921,10 @@ function bootDictationService() {
 }
 
 function bootHotkeyListener() {
-  const pythonScript = path.join(getProjectRoot(), 'python', 'hotkey_listener.py');
+  const launchSpec = getWorkerLaunchSpec('hotkey_listener');
   const localToken = ++hotkeyToken;
-  const localProcess = spawn(getPythonBin(), ['-u', pythonScript], {
-    cwd: getProjectRoot(),
+  const localProcess = spawn(launchSpec.command, launchSpec.args, {
+    cwd: getRuntimeBasePath(),
     env: getServiceEnv(),
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
@@ -2171,6 +2205,7 @@ ipcMain.on('overlay-drag-end', (_event, position) => {
 
 app.whenReady().then(() => {
   app.setAppUserModelId(APP_ID);
+  ensureRuntimeDirectories();
 
   const persistedState = loadPersistentState();
   setState({

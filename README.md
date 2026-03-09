@@ -1,61 +1,96 @@
 # MegaFala
 
-App desktop para Windows MegaFala, com Electron na interface e Faster-Whisper rodando localmente.
+App desktop para Windows com Electron na interface e Faster-Whisper rodando localmente.
 
-## O que mudou
+## Arquitetura atual
 
-- captura somente enquanto o atalho global estiver pressionado
-- seletor de modelos direto na interface
-- estatisticas separadas por modelo, com media e total de transcricoes
-- colagem via clipboard temporario + `Ctrl+V`, com limpeza imediata depois
-- layout horizontal mais adequado para desktop
+- a interface e o processo principal rodam em Electron
+- a transcricao roda em um worker Python separado
+- o listener de atalho global roda em outro worker Python
+- no app compilado, o Electron continua levando o runtime Node embutido
+- o que precisa ser empacotado explicitamente e o runtime Python dos workers
 
-## Instalacao
+## Fluxo recomendado para modelos
+
+- o default deve ser `small`, que corresponde ao perfil equilibrado
+- o primeiro boot do app pode baixar automaticamente esse modelo para `%APPDATA%/MegaFala/models`
+- os outros modelos devem aparecer nas configuracoes com status `Nao instalado`, `Baixando` ou `Instalado`
+- o download pode ser feito pelo proprio app compilado, sem depender de Next.js e sem depender de Node instalado no sistema
+- isso funciona porque o download acontece no worker Python via `faster-whisper` e `huggingface_hub`
+
+## Onde os dados ficam
+
+- preferencias e historico: `%APPDATA%/MegaFala/store/settings.json`
+- cache local dos modelos: `%APPDATA%/MegaFala/models`
+
+## Desenvolvimento
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install -r .\python\requirements.txt
+python -m pip install pyinstaller
 npm install
-pip install -r .\python\requirements.txt
 ```
 
-No Windows, esse `requirements.txt` agora instala tambem o runtime `nvidia-cublas-cu12` usado pelo backend CUDA do CTranslate2.
+No Windows, o `requirements.txt` instala tambem `nvidia-cublas-cu12`, usado quando o backend CUDA do CTranslate2 estiver disponivel.
 
 ## Arquivo `.env`
 
 Edite [`.env`](H:/Python/Tools/Wispr%20Flow%20Clone/.env) se quiser trocar os defaults:
 
 ```dotenv
-WHISPER_MODEL=medium
+WHISPER_MODEL=small
 WHISPER_DEVICE=auto
 WHISPER_COMPUTE_TYPE=
 FLOW_HOTKEY=ctrl+windows
 ALLOWED_LANGUAGES=pt,en
 ```
 
-O modelo selecionado na interface passa a valer para as proximas execucoes, mesmo sem mexer no `.env`.
+O modelo selecionado na interface continua sendo persistido e prevalece nas proximas execucoes.
 
-As transcricoes, estatisticas e preferencias salvas pela interface ficam persistidas em
-`%APPDATA%/MegaFala/store/settings.json` e sao recarregadas ao abrir o app novamente.
-
-## Executar
+## Rodar em dev
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 npm start
 ```
 
-## Uso
+## Compilar o app Windows
 
-1. Espere o estado ficar `Pronto`.
-2. Abra o app onde voce quer colar o texto e deixe o foco no campo.
-3. Segure `Ctrl+Win` enquanto fala.
-4. Solte `Ctrl+Win` para transcrever e colar.
-5. Para entrar em hands-free, use `Ctrl+Win+Space` ou aperte `Space` enquanto ainda estiver segurando `Ctrl+Win`.
-6. No hands-free, pressione `Ctrl+Win` novamente para finalizar e transcrever.
-7. Troque o modelo na lateral direita para comparar latencia media e qualidade.
+1. Instale as dependencias de Node e Python:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r .\python\requirements.txt
+python -m pip install pyinstaller
+npm install
+```
+
+2. Gere os executaveis Python que serao embutidos no app:
+
+```powershell
+npm run build:python
+```
+
+3. Gere o instalador Windows:
+
+```powershell
+npm run dist:win
+```
+
+4. O instalador final ficara em `dist/`.
+
+## O que o build faz
+
+- `scripts/build-python.ps1` gera `dictation_service.exe` e `hotkey_listener.exe`
+- `electron-builder` empacota o Electron e copia esses workers para `resources/bin`
+- os scripts PowerShell usados para colagem de texto e controle de audio vao para `resources/scripts`
+- em producao, o app passa a chamar esses executaveis, sem depender de Python instalado na maquina
 
 ## Observacoes
 
-- se o runtime CUDA/cuBLAS compativel nao estiver disponivel, o app continua em CPU e mostra esse status no painel lateral
-- os modelos mais lentos tendem a melhorar bastante a qualidade em portugues
+- se o runtime CUDA/cuBLAS nao estiver disponivel, o app faz fallback automatico para CPU
+- modelos maiores melhoram a qualidade, mas aumentam latencia, uso de RAM e tempo de download
+- se voce quiser um fluxo de UI com botao `Baixar`, o proximo passo e adicionar um pequeno manager de modelos no worker Python para instalar, remover e informar status para a interface

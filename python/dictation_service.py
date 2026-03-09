@@ -110,7 +110,8 @@ class DictationService:
         self.frame_ms = 30
         self.frame_samples = int(self.sample_rate * self.frame_ms / 1000)
         self.vad = webrtcvad.Vad(2)
-        self.model_name = os.getenv("WHISPER_MODEL", "medium")
+        self.model_name = os.getenv("WHISPER_MODEL", "small")
+        self.model_dir = os.getenv("WHISPER_MODEL_DIR")
         self.requested_device = os.getenv("WHISPER_DEVICE", "auto").lower()
         self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE")
         self.allowed_languages = normalize_languages(os.getenv("ALLOWED_LANGUAGES", "pt,en"))
@@ -174,6 +175,7 @@ class DictationService:
             device=device,
             compute_type=compute_type,
             cpu_threads=max(1, (os.cpu_count() or 4) // 2),
+            download_root=self.model_dir,
         )
 
     def _resolve_device(self) -> str:
