@@ -170,6 +170,126 @@ h1, h2, h3 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.status-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 18px 20px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.status-panel__icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-bg-subtle);
+  flex-shrink: 0;
+}
+
+.status-panel__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(140, 140, 138, 0.28);
+  border-top-color: var(--text);
+  animation: status-spin 0.8s linear infinite;
+}
+
+.status-panel__copy {
+  min-width: 0;
+}
+
+.status-panel__copy strong {
+  display: block;
+  font-size: 0.96rem;
+  margin-bottom: 6px;
+}
+
+.status-panel__copy p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.status-panel__progress {
+  position: relative;
+  overflow: hidden;
+  height: 6px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: var(--panel-bg-subtle);
+  border: 1px solid var(--panel-border);
+}
+
+.status-panel__progress span {
+  position: absolute;
+  inset: 0 auto 0 -38%;
+  width: 38%;
+  border-radius: inherit;
+  background: var(--text);
+  opacity: 0.88;
+  animation: status-progress 1.15s ease-in-out infinite;
+}
+
+.status-panel__note {
+  margin-top: 10px !important;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.status-panel--loading .status-panel__icon {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.status-panel--loading .status-panel__progress span {
+  background: var(--transcribing);
+}
+
+.status-panel--error {
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.status-panel--error .status-panel__icon {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.status-panel--error .status-panel__spinner {
+  border-color: transparent;
+  width: auto;
+  height: auto;
+  animation: none;
+  color: var(--error);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.status-panel--error .status-panel__progress {
+  display: none;
+}
+
+@keyframes status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes status-progress {
+  0% {
+    left: -38%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 /* Buttons */
 .secondary-button, .copy-button, .settings-button {
   appearance: none;
@@ -1130,6 +1250,9 @@ h1, h2, h3 {
   body { padding: 20px; }
   .topbar { flex-direction: column; align-items: flex-start; }
   .topbar__meta { width: 100%; }
+  .status-panel {
+    grid-template-columns: 1fr;
+  }
   .metrics-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .history-item { flex-direction: column; gap: 8px; }
   .history-item__time { flex: none; flex-direction: row; gap: 8px; align-items: center; }

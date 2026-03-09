@@ -9,6 +9,7 @@ const TRANSLATIONS = {
   en: {
     appTagline: 'Write at the speed of thought.',
     globalShortcut: 'Global shortcut',
+    pasteLastShortcut: 'Paste last',
     dictionary: 'Dictionary',
     settings: 'Settings',
     streak: 'Streak',
@@ -72,10 +73,18 @@ const TRANSLATIONS = {
     fillRuleError: 'Fill in the inputs and the replacement.',
     copy: 'Copy',
     copied: 'Copied',
+    loadingStatusTitle: 'Loading transcription model',
+    loadingStatusDetail: 'Preparing the local transcription model.',
+    loadingStatusHint: 'The first download can take a bit longer. The model stays installed after that.',
+    switchingStatusTitle: 'Finalizing model installation',
+    switchingStatusHint: 'If this is the first download, keep the app open until the worker finishes.',
+    errorStatusTitle: 'Something needs attention',
+    errorStatusHint: 'Check the system diagnostics below if this keeps happening.',
   },
   'pt-BR': {
     appTagline: 'Escreva na velocidade do pensamento.',
     globalShortcut: 'Atalho global',
+    pasteLastShortcut: 'Colar ultima',
     dictionary: 'Dicionário',
     settings: 'Configurações',
     streak: 'Sequência',
@@ -139,6 +148,13 @@ const TRANSLATIONS = {
     fillRuleError: 'Preencha as entradas e a substituição.',
     copy: 'Copiar',
     copied: 'Copiado',
+    loadingStatusTitle: 'Carregando modelo de transcricao',
+    loadingStatusDetail: 'Preparando o modelo local de transcricao.',
+    loadingStatusHint: 'No primeiro download isso pode levar alguns minutos. Depois o modelo fica salvo neste computador.',
+    switchingStatusTitle: 'Finalizando a instalacao do modelo',
+    switchingStatusHint: 'Se este for o primeiro download, mantenha o app aberto ate o worker terminar.',
+    errorStatusTitle: 'Algo precisa de atencao',
+    errorStatusHint: 'Se isso continuar, verifique o diagnostico do sistema logo abaixo.',
   },
 };
 
@@ -179,7 +195,13 @@ const els = {
   historyCount: document.getElementById('history-count'),
   historySearch: document.getElementById('history-search'),
   shortcutLabel: document.getElementById('shortcut-label'),
+  pasteShortcutLabel: document.getElementById('paste-shortcut-label'),
   noticeStrip: document.getElementById('notice-strip'),
+  statusPanel: document.getElementById('status-panel'),
+  statusPanelTitle: document.getElementById('status-panel-title'),
+  statusPanelDetail: document.getElementById('status-panel-detail'),
+  statusPanelNote: document.getElementById('status-panel-note'),
+  statusPanelProgress: document.getElementById('status-panel-progress'),
   detectionLanguageDefaults: document.getElementById('detection-language-defaults'),
   detectionLanguageSummary: document.getElementById('detection-language-summary'),
   toggleDetectionLanguages: document.getElementById('toggle-detection-languages'),
@@ -393,13 +415,71 @@ function formatShortcut(shortcut) {
     .map((part) => {
       const token = part.trim().toLowerCase();
       if (token === 'commandorcontrol' || token === 'ctrl') return 'Ctrl';
+      if (token === 'control') return 'Ctrl';
+      if (token === 'command' || token === 'cmd') return 'Cmd';
       if (token === 'shift') return 'Shift';
       if (token === 'space') return 'Space';
-      if (token === 'alt') return 'Alt';
+      if (token === 'alt' || token === 'option') return 'Alt';
       if (token === 'windows' || token === 'left windows' || token === 'right windows') return 'Win';
       return token.length === 1 ? token.toUpperCase() : token;
     })
     .join('+');
+}
+
+function getStatusPanelData(state) {
+  if (state.error) {
+    return {
+      tone: 'error',
+      icon: '!',
+      title: t('errorStatusTitle'),
+      detail: state.error,
+      note: t('errorStatusHint'),
+      showProgress: false,
+    };
+  }
+
+  const isLoading = state.switchingModel || state.phase === 'booting';
+  if (!isLoading) {
+    return null;
+  }
+
+  const modelName = modelLabel(state.model);
+  const title = state.switchingModel
+    ? `${t('switchingStatusTitle')}: ${modelName}`
+    : `${t('loadingStatusTitle')}: ${modelName}`;
+  const detail = state.notice || t('loadingStatusDetail');
+  const note = state.switchingModel ? t('switchingStatusHint') : t('loadingStatusHint');
+
+  return {
+    tone: 'loading',
+    icon: '',
+    title,
+    detail,
+    note,
+    showProgress: true,
+  };
+}
+
+function renderStatusPanel(state) {
+  const panelState = getStatusPanelData(state);
+  if (!panelState) {
+    els.statusPanel.classList.add('hidden');
+    els.statusPanel.classList.remove('status-panel--loading', 'status-panel--error');
+    return;
+  }
+
+  els.statusPanel.classList.remove('hidden');
+  els.statusPanel.classList.toggle('status-panel--loading', panelState.tone === 'loading');
+  els.statusPanel.classList.toggle('status-panel--error', panelState.tone === 'error');
+  els.statusPanelTitle.textContent = panelState.title;
+  els.statusPanelDetail.textContent = panelState.detail;
+  els.statusPanelNote.textContent = panelState.note;
+  els.statusPanelProgress.classList.toggle('hidden', !panelState.showProgress);
+
+  const spinner = els.statusPanel.querySelector('.status-panel__spinner');
+  if (spinner) {
+    spinner.textContent = panelState.icon;
+  }
 }
 
 function initTheme() {
@@ -643,8 +723,10 @@ function renderState(state) {
   renderInterfaceLanguages();
   renderDetectionLanguages();
   hideToast();
+  renderStatusPanel(state);
 
   els.shortcutLabel.textContent = formatShortcut(state.shortcut) || '--';
+  els.pasteShortcutLabel.textContent = formatShortcut(state.pasteLastShortcut) || '--';
   els.activeModelLabel.textContent = `${modelLabel(state.model)} (${state.model})`;
   els.deviceLabel.textContent = state.device ? String(state.device).toUpperCase() : '--';
   els.deviceNote.textContent = state.deviceNote || t('noNotes');

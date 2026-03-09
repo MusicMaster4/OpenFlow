@@ -7,8 +7,9 @@
   "scripts": {
     "start": "electron .",
     "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/overlay.js",
-    "build:python": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-python.ps1",
-    "dist:win": "npm run build:python && electron-builder --win nsis"
+    "build:python": "node scripts/build-python.js",
+    "dist:win": "npm run build:python && electron-builder --win nsis",
+    "dist:mac": "npm run build:python && electron-builder --mac dmg zip"
   },
   "build": {
     "appId": "com.megafala.app",
@@ -50,6 +51,13 @@
     "win": {
       "target": "nsis",
       "icon": "src/assets/megaf.ico"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
     }
   },
   "license": "MIT",

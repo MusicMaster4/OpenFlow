@@ -55,7 +55,7 @@ if ($LASTEXITCODE -ne 0) {
 
 & $pythonExe @commonArgs `
   '--name' 'hotkey_listener' `
-  '--hidden-import' 'keyboard._winkeyboard' `
+  '--collect-submodules' 'pynput' `
   'python\hotkey_listener.py'
 
 if ($LASTEXITCODE -ne 0) {

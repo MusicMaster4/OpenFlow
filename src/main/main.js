@@ -6,7 +6,9 @@ const { app, BrowserWindow, clipboard, ipcMain, screen } = require('electron');
 const { spawn } = require('child_process');
 const readline = require('readline');
 
-const DEFAULT_SHORTCUT = 'ctrl+windows';
+const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'ctrl+command' : 'ctrl+windows';
+const DEFAULT_PASTE_LAST_SHORTCUT =
+  process.platform === 'darwin' ? 'command+option+v' : 'ctrl+alt+v';
 const DEFAULT_LANGUAGES = ['pt', 'en'];
 const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
@@ -644,9 +646,20 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function getShortcutFromEnv(name, fallback) {
+  const value = String(process.env[name] || '')
+    .trim()
+    .toLowerCase();
+  return value || fallback;
+}
+
 function getDefaultsFromEnv() {
   return {
-    shortcut: String(process.env.FLOW_HOTKEY || DEFAULT_SHORTCUT).toLowerCase(),
+    shortcut: getShortcutFromEnv('FLOW_HOTKEY', DEFAULT_SHORTCUT),
+    pasteLastShortcut: getShortcutFromEnv(
+      'FLOW_PASTE_LAST_HOTKEY',
+      DEFAULT_PASTE_LAST_SHORTCUT,
+    ),
     allowedLanguages: normalizeDetectionLanguages(
       process.env.ALLOWED_LANGUAGES || DEFAULT_LANGUAGES.join(','),
     ),
@@ -666,6 +679,7 @@ const state = {
   listening: false,
   phase: 'booting',
   shortcut: defaults.shortcut,
+  pasteLastShortcut: defaults.pasteLastShortcut,
   allowedLanguages: defaults.allowedLanguages,
   partial: '',
   latestFinal: '',
@@ -713,7 +727,9 @@ function getProjectRoot() {
 }
 
 function getPythonBin() {
-  const venvPython = path.join(getProjectRoot(), '.venv', 'Scripts', 'python.exe');
+  const venvPython = process.platform === 'win32'
+    ? path.join(getProjectRoot(), '.venv', 'Scripts', 'python.exe')
+    : path.join(getProjectRoot(), '.venv', 'bin', 'python');
   return process.env.PYTHON_BIN || (fs.existsSync(venvPython) ? venvPython : 'python');
 }
 
@@ -1037,10 +1053,12 @@ function getServiceEnv() {
     WHISPER_MODEL_DIR: getModelsDirectory(),
     ALLOWED_LANGUAGES: state.allowedLanguages.join(','),
     FLOW_HOTKEY: state.shortcut,
+    FLOW_PASTE_LAST_HOTKEY: state.pasteLastShortcut,
     HF_HOME: path.join(getModelsDirectory(), 'hf-home'),
     HUGGINGFACE_HUB_CACHE: path.join(getModelsDirectory(), 'hub'),
     HF_HUB_DISABLE_SYMLINKS_WARNING: '1',
     HF_HUB_DISABLE_PROGRESS_BARS: '1',
+    OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES',
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
   };
@@ -1158,6 +1176,46 @@ function isCurrentDictationSession(sessionId) {
 
 function insertTextIntoFocusedApp(text) {
   return new Promise((resolve, reject) => {
+    if (process.platform === 'darwin') {
+      const previousClipboard = clipboard.readText();
+      clipboard.writeText(String(text || ''));
+
+      const appleScript = [
+        'tell application "System Events"',
+        '  keystroke "v" using command down',
+        'end tell',
+      ];
+      const osascript = spawn('osascript', appleScript.flatMap((line) => ['-e', line]));
+      let stderr = '';
+
+      osascript.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      osascript.on('error', (error) => {
+        clipboard.writeText(previousClipboard);
+        reject(error);
+      });
+
+      osascript.on('close', (code) => {
+        setTimeout(() => {
+          if (previousClipboard) {
+            clipboard.writeText(previousClipboard);
+          } else {
+            clipboard.clear();
+          }
+        }, 120);
+
+        if (code === 0) {
+          resolve();
+          return;
+        }
+
+        reject(new Error(stderr || `osascript exited with code ${code}`));
+      });
+      return;
+    }
+
     const scriptPath = path.join(getRuntimeBasePath(), 'scripts', 'send_text.ps1');
     const encodedText = Buffer.from(text, 'utf8').toString('base64');
     const powershell = spawn(
@@ -1650,6 +1708,8 @@ function handleHotkeyEvent(event) {
       setState({
         hotkeyOnline: true,
         shortcut: payload.shortcut || state.shortcut,
+        pasteLastShortcut:
+          payload.paste_last_shortcut || payload.pasteLastShortcut || state.pasteLastShortcut,
       });
       break;
     case 'hotkey-pressed':

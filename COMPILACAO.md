@@ -1,47 +1,83 @@
 # Compilacao do MegaFala
 
-Este arquivo descreve como compilar o aplicativo e qual e o estado real de suporte por plataforma.
+Este projeto agora usa a mesma base de codigo para `Windows` e `macOS`.
 
-## Resumo rapido
+## Como o app final funciona
 
-- `Windows`: suportado no estado atual do projeto.
-- `macOS`: ainda nao suportado no estado atual do projeto; exige adaptacoes de codigo antes de gerar um app funcional.
+- a interface roda em `Electron`
+- o usuario final nao precisa instalar `Node.js`, `npm` ou `Next.js`
+- a transcricao roda em um worker Python empacotado com `PyInstaller`
+- o listener global de atalho tambem roda em um worker Python empacotado
+- o app final baixa e guarda os modelos Whisper no computador do usuario
 
-## Como o app empacotado funciona
+## Sistema de instalacao dos modelos
 
-- o Electron leva o runtime Node embutido no aplicativo final
-- o usuario final nao precisa ter `Node.js`, `npm` ou `Next.js` instalados
-- o backend de transcricao roda em workers Python separados
-- no build de producao, esses workers Python sao convertidos em executaveis via `PyInstaller`
-- os modelos do Whisper ficam fora do pacote, em cache local do usuario
+O comportamento atual e este:
 
-## Diretorios importantes
+1. O modelo padrao do app e o `small`, tratado na interface como o perfil equilibrado.
+2. No primeiro boot do app, se esse modelo ainda nao existir localmente, o worker de transcricao faz o download automaticamente.
+3. Quando o usuario troca para outro modelo nas configuracoes, o app reinicia o worker com o modelo escolhido.
+4. Se esse modelo novo ainda nao estiver instalado, o `faster-whisper` baixa automaticamente o modelo antes de concluir a carga.
+5. Depois do primeiro download, o modelo fica salvo localmente e nao precisa ser baixado de novo.
 
-- preferencias e historico: `%APPDATA%/MegaFala/store/settings.json`
-- modelos baixados: `%APPDATA%/MegaFala/models`
-- workers Python empacotados: `build/python-dist/`
-- instaladores gerados: `dist/`
+Pontos importantes:
+
+- isso funciona no app compilado, sem precisar de Node instalado no computador do usuario
+- o download acontece pelo backend Python, usando `faster-whisper` + `huggingface_hub`
+- hoje o app ja faz a instalacao sob demanda; o que ainda nao existe e uma barra de progresso dedicada por modelo
+- enquanto o modelo estiver sendo baixado/carregado, o app fica em estado de carregamento
+
+## Onde os modelos e dados ficam
+
+### Windows
+
+- preferencias e historico:
+  `%APPDATA%/MegaFala/store/settings.json`
+- modelos:
+  `%APPDATA%/MegaFala/models`
+
+### macOS
+
+- preferencias e historico:
+  `~/Library/Application Support/MegaFala/store/settings.json`
+- modelos:
+  `~/Library/Application Support/MegaFala/models`
+
+## Atalhos padrao
+
+### Windows
+
+- ditado: `Ctrl+Win`
+- hands-free: segure `Ctrl+Win` e aperte `Space`
+- colar ultima transcricao: `Ctrl+Alt+V`
+
+### macOS
+
+- ditado: `Ctrl+Command`
+- hands-free: segure `Ctrl+Command` e aperte `Space`
+- colar ultima transcricao: `Command+Option+V`
+
+Se `FLOW_HOTKEY` estiver vazio, o app usa automaticamente o atalho padrao da plataforma.
 
 ## Build para Windows
 
-### 1. Pre-requisitos
+Esse build deve ser executado em uma maquina Windows.
 
-Instale na maquina de build:
+### Pre-requisitos
 
 - `Python 3.12`
 - `Node.js 20+`
 - `npm`
 
-Recomendado no Windows:
+Recomendado:
 
-- abrir o terminal como administrador, ou
 - ativar `Developer Mode` no Windows
+ou
+- abrir o terminal como administrador
 
-Isso evita erro de permissao com links simbolicos durante o `electron-builder`.
+Isso evita erro com links simbolicos durante o `electron-builder`.
 
-### 2. Instalar dependencias do projeto
-
-No diretorio raiz do projeto:
+### Instalar dependencias
 
 ```powershell
 python -m venv .venv
@@ -51,91 +87,76 @@ python -m pip install pyinstaller
 npm install
 ```
 
-### 3. Validar o codigo JavaScript
+### Validar o codigo
 
 ```powershell
 npm run check
 ```
 
-### 4. Gerar os workers Python de producao
+### Gerar os workers Python
 
 ```powershell
 npm run build:python
 ```
 
-Esse comando gera:
+Isso gera:
 
 - `build/python-dist/dictation_service/`
 - `build/python-dist/hotkey_listener/`
 
-### 5. Gerar o instalador Windows
+### Gerar o instalador Windows
 
 ```powershell
 npm run dist:win
 ```
 
-Saidas esperadas:
+Saidas:
 
 - app desempacotado: `dist/win-unpacked/`
 - instalador NSIS: `dist/`
 
-### 6. Problema comum no Windows
+### Erro comum no Windows
 
-Se o `npm run dist:win` falhar com erro parecido com:
+Se aparecer algo como:
 
 ```text
 Cannot create symbolic link
 O cliente nao tem o privilegio necessario
 ```
 
-faca um destes:
+faça um destes:
 
-1. Ative `Developer Mode` no Windows.
-2. Rode o terminal como administrador.
-3. Execute novamente `npm run dist:win`.
-
-### 7. Teste do instalador
-
-Depois de instalar:
-
-1. abra o app
-2. aguarde o carregamento do worker
-3. no primeiro uso, o modelo default `small` pode ser baixado para `%APPDATA%/MegaFala/models`
-4. teste o atalho global e a colagem em outro aplicativo
+1. ative `Developer Mode`
+2. rode o terminal como administrador
+3. execute `npm run dist:win` novamente
 
 ## Build para macOS
 
-## Status atual
+Esse build deve ser executado em uma maquina macOS. O `electron-builder` nao gera um `.app` ou `.dmg` macOS funcional a partir de uma maquina Windows comum.
 
-Hoje o projeto nao gera um app macOS funcional. O motivo nao e o Electron em si, e a camada nativa do app:
+### Pre-requisitos
 
-- [`scripts/send_text.ps1`](H:\Python\Tools\Wispr Flow Clone\scripts\send_text.ps1) e Windows-only
-- [`scripts/system_audio_controller.ps1`](H:\Python\Tools\Wispr Flow Clone\scripts\system_audio_controller.ps1) e Windows-only
-- o pipeline de build Python atual usa [`scripts/build-python.ps1`](H:\Python\Tools\Wispr Flow Clone\scripts\build-python.ps1), que e Windows-only
-- o fluxo de hotkey global atual foi montado com foco em Windows
+- `Python 3.12`
+- `Node.js 20+`
+- `npm`
+- `Xcode Command Line Tools`
 
-## O que precisa ser feito antes de compilar no macOS
+Instale as ferramentas da Apple:
 
-1. Substituir a colagem de texto por uma implementacao macOS.
-   Exemplo: AppleScript, `osascript`, `CGEvent` ou um helper nativo.
+```bash
+xcode-select --install
+```
 
-2. Substituir ou desativar o ducking de audio.
-   Hoje isso depende de Core Audio via PowerShell/C# embutido para Windows.
+### Permissoes do macOS
 
-3. Trocar o listener global de atalho por uma opcao compativel com macOS.
-   O caminho mais simples tende a ser usar `globalShortcut` do Electron, ou criar um helper nativo para macOS.
+Para o app funcionar corretamente depois de compilado, o macOS pode pedir:
 
-4. Criar um script de build Python para macOS.
-   Exemplo: `scripts/build-python.sh` usando `pyinstaller`.
+- `Accessibility`, para o atalho global e para enviar `Command+V`
+- `Microphone`, para capturar audio
 
-5. Adicionar target macOS no `electron-builder`.
-   Exemplo: `dmg` e/ou `zip`.
+Sem isso, o app pode abrir, mas o atalho global ou a colagem automatica podem falhar.
 
-6. Configurar assinatura e notarizacao da Apple se o app for distribuido fora do ambiente local.
-
-## Sequencia recomendada para habilitar macOS
-
-Quando essas adaptacoes forem feitas, a sequencia de build deve ficar assim:
+### Instalar dependencias
 
 ```bash
 python3 -m venv .venv
@@ -143,16 +164,83 @@ source .venv/bin/activate
 python -m pip install -r ./python/requirements.txt
 python -m pip install pyinstaller
 npm install
-npm run check
-./scripts/build-python.sh
-npx electron-builder --mac dmg
+chmod +x ./scripts/build-python.sh
 ```
 
-Mas isso ainda depende das trocas de implementacao listadas acima.
+### Validar o codigo
 
-## Recomendacao pratica
+```bash
+npm run check
+```
 
-- para entregar instalador agora: foque em `Windows`
-- para suportar `macOS`: primeiro portar hotkeys, colagem de texto e controle de audio
-- o worker de transcricao com `faster-whisper` e a logica de modelos sao aproveitaveis nas duas plataformas
+### Gerar os workers Python
+
+```bash
+npm run build:python
+```
+
+No macOS, esse comando usa `scripts/build-python.sh`.
+
+### Gerar o pacote macOS
+
+```bash
+npm run dist:mac
+```
+
+Saidas esperadas:
+
+- app empacotado: `dist/mac/`
+- imagem `.dmg`: `dist/`
+- `.zip`: `dist/`
+
+### Assinatura e notarizacao
+
+Para teste local, o build pode ser gerado sem assinatura.
+
+Para distribuicao externa no macOS, o ideal e configurar:
+
+- certificado de assinatura Apple
+- notarizacao da Apple
+
+Se voce for distribuir fora da sua propria maquina, esse e o passo seguinte.
+
+## Pipeline resumido
+
+### Windows
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r .\python\requirements.txt
+python -m pip install pyinstaller
+npm install
+npm run check
+npm run dist:win
+```
+
+### macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r ./python/requirements.txt
+python -m pip install pyinstaller
+npm install
+chmod +x ./scripts/build-python.sh
+npm run check
+npm run dist:mac
+```
+
+## O que foi adaptado para funcionar nas duas plataformas
+
+- o listener global de teclado agora usa `pynput`, em vez de uma implementacao presa ao Windows
+- a colagem automatica usa `PowerShell` no Windows e `osascript` no macOS
+- o build Python agora escolhe `PowerShell` ou `bash` conforme a plataforma
+- o cache dos modelos foi movido para a pasta de dados do usuario, em vez de depender do cache global padrao do Hugging Face
+
+## Limitacoes atuais
+
+- o controle de ducking do audio do sistema continua ativo apenas no Windows
+- no macOS, o app funciona sem esse ducking; a transcricao continua funcionando normalmente
+- o download dos modelos ainda nao tem barra de progresso dedicada na interface
 
