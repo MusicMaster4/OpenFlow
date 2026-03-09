@@ -7,7 +7,7 @@ App desktop para Windows MegaFala, com Electron na interface e Faster-Whisper ro
 - captura somente enquanto o atalho global estiver pressionado
 - seletor de modelos direto na interface
 - estatisticas separadas por modelo, com media e total de transcricoes
-- colagem via clipboard + `Ctrl+V`, sem digitacao lenta
+- colagem via clipboard temporario + `Ctrl+V`, com limpeza imediata depois
 - layout horizontal mais adequado para desktop
 
 ## Instalacao

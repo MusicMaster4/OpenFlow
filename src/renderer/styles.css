@@ -76,7 +76,8 @@ body {
     var(--page-bg);
 }
 
-body.settings-open {
+body.settings-open,
+body.dictionary-open {
   overflow: hidden;
 }
 
@@ -138,6 +139,7 @@ h1, h2, h3 {
 .topbar__meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -378,6 +380,10 @@ h1, h2, h3 {
   font-size: 0.95rem;
 }
 
+.section-head--tight {
+  margin-bottom: 14px;
+}
+
 /* Toast */
 .toast-layer {
   position: fixed;
@@ -420,6 +426,264 @@ h1, h2, h3 {
 }
 
 .hidden { display: none !important; }
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(2px);
+  z-index: 52;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+
+[data-theme="light"] .dialog-backdrop {
+  background: rgba(17, 17, 16, 0.18);
+}
+
+.dialog-window {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(78vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--page-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 53;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -47%);
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+}
+
+.dialog-backdrop.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.dialog-window.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, -50%);
+  transition-delay: 0s;
+}
+
+.dialog-window__header {
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  background: var(--panel-bg);
+}
+
+.dialog-window__header h2 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.dialog-window__body {
+  padding: 24px 28px 28px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.dictionary-form,
+.dictionary-section {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.dictionary-form {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dictionary-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-field span,
+.form-field__label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.form-field input,
+.form-field textarea {
+  width: 100%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg-subtle);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: 0.95rem;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.form-field textarea {
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+  color: var(--muted);
+}
+
+.form-field input:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: var(--text);
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dictionary-form__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.dictionary-form__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dictionary-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-grid--dictionary {
+  margin-top: 8px;
+}
+
+.dictionary-section {
+  padding: 20px;
+}
+
+.dictionary-list {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-subtle);
+  overflow: auto;
+  max-height: 320px;
+}
+
+.dictionary-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-bg-elevated);
+  align-items: center;
+}
+
+.dictionary-item:last-child {
+  border-bottom: none;
+}
+
+.dictionary-item__content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dictionary-item__label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dictionary-item__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dictionary-item__target {
+  font-size: 0.96rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dictionary-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dictionary-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dictionary-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dictionary-source-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg-subtle);
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.dictionary-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  font-size: 0.78rem;
+  color: var(--muted-strong);
+}
 
 /* Settings Drawer */
 .settings-backdrop {
@@ -666,10 +930,33 @@ h1, h2, h3 {
 @media (max-width: 768px) {
   body { padding: 20px; }
   .topbar { flex-direction: column; align-items: flex-start; }
+  .topbar__meta { width: 100%; }
   .metrics-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .history-item { flex-direction: column; gap: 8px; }
   .history-item__time { flex: none; flex-direction: row; gap: 8px; align-items: center; }
   .toast-layer { top: 12px; right: 12px; left: 12px; }
   .toast { min-width: 0; max-width: none; }
   .settings-drawer { width: 100vw; }
+  .dialog-window {
+    width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+  }
+  .dialog-window__header,
+  .dialog-window__body {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .dialog-window__header,
+  .dictionary-form__footer,
+  .dictionary-item,
+  .dictionary-item__actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dictionary-form__grid,
+  .language-grid,
+  .language-grid--dictionary {
+    grid-template-columns: 1fr;
+  }
 }

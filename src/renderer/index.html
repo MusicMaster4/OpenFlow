@@ -28,6 +28,9 @@
             <span>Atalho global</span>
             <strong id="shortcut-label">Ctrl+Win</strong>
           </div>
+          <button class="secondary-button" id="open-dictionary" type="button">
+            Dicion&aacute;rio
+          </button>
           <button class="settings-button" id="open-settings" type="button">
             Configurações
           </button>
@@ -212,6 +215,95 @@
           </div>
         </div>
       </aside>
+
+      <div class="dialog-backdrop hidden" id="dictionary-backdrop"></div>
+      <section
+        class="dialog-window hidden"
+        id="dictionary-window"
+        aria-hidden="true"
+        aria-labelledby="dictionary-title"
+      >
+        <div class="dialog-window__header">
+          <div>
+            <h2 id="dictionary-title">Dicion&aacute;rio</h2>
+            <p class="section-head__copy">
+              Troque termos automaticamente no texto final, ignorando mai&uacute;sculas e min&uacute;sculas.
+            </p>
+          </div>
+          <button class="secondary-button" id="close-dictionary" type="button">
+            Fechar
+          </button>
+        </div>
+
+        <div class="dialog-window__body">
+          <form class="dictionary-form" id="dictionary-form">
+            <div class="dictionary-form__grid">
+              <label class="form-field" for="dictionary-sources">
+                <span>Entradas da regra</span>
+                <textarea
+                  id="dictionary-sources"
+                  rows="4"
+                  placeholder="Uma varia&ccedil;&atilde;o por linha&#10;mega fala&#10;megafala"
+                ></textarea>
+                <p class="form-hint">
+                  Adicione quantas varia&ccedil;&otilde;es quiser. Use uma entrada por linha.
+                </p>
+              </label>
+
+              <label class="form-field" for="dictionary-target">
+                <span>Substitui&ccedil;&atilde;o final</span>
+                <input
+                  id="dictionary-target"
+                  type="text"
+                  placeholder="Ex.: MegaFala"
+                  autocomplete="off"
+                />
+              </label>
+            </div>
+
+            <div class="dictionary-form__footer">
+              <div class="dictionary-form__options">
+                <span class="form-field__label">L&iacute;nguas ativas</span>
+                <div class="language-grid language-grid--dictionary">
+                  <label class="language-option">
+                    <input id="dictionary-lang-pt" type="checkbox" value="pt" />
+                    <span>Portugu&ecirc;s</span>
+                  </label>
+                  <label class="language-option">
+                    <input id="dictionary-lang-en" type="checkbox" value="en" />
+                    <span>English</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="dictionary-form__actions">
+                <button class="secondary-button hidden" id="cancel-dictionary-edit" type="button">
+                  Cancelar edi&ccedil;&atilde;o
+                </button>
+                <button class="settings-button" id="submit-dictionary-rule" type="submit">
+                  Adicionar regra
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <section class="dictionary-section">
+            <div class="section-head section-head--tight">
+              <div>
+                <h2>Regras ativas</h2>
+                <p class="section-head__copy">
+                  A substitui&ccedil;&atilde;o acontece antes do texto entrar no hist&oacute;rico e no campo ativo.
+                </p>
+              </div>
+              <span class="section-count" id="dictionary-count">0 regras</span>
+            </div>
+
+            <div class="dictionary-list" id="dictionary-list">
+              <div class="history-empty">Nenhuma regra cadastrada.</div>
+            </div>
+          </section>
+        </div>
+      </section>
     </main>
 
     <script src="./renderer.js"></script>

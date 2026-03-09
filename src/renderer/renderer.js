@@ -32,6 +32,19 @@ const els = {
   daysUsedValue: document.getElementById('days-used-value'),
   wordsTotalValue: document.getElementById('words-total-value'),
   wpmValue: document.getElementById('wpm-value'),
+  openDictionary: document.getElementById('open-dictionary'),
+  closeDictionary: document.getElementById('close-dictionary'),
+  dictionaryWindow: document.getElementById('dictionary-window'),
+  dictionaryBackdrop: document.getElementById('dictionary-backdrop'),
+  dictionaryForm: document.getElementById('dictionary-form'),
+  dictionarySources: document.getElementById('dictionary-sources'),
+  dictionaryTarget: document.getElementById('dictionary-target'),
+  dictionaryLangPt: document.getElementById('dictionary-lang-pt'),
+  dictionaryLangEn: document.getElementById('dictionary-lang-en'),
+  dictionaryList: document.getElementById('dictionary-list'),
+  dictionaryCount: document.getElementById('dictionary-count'),
+  cancelDictionaryEdit: document.getElementById('cancel-dictionary-edit'),
+  submitDictionaryRule: document.getElementById('submit-dictionary-rule'),
   openSettings: document.getElementById('open-settings'),
   closeSettings: document.getElementById('close-settings'),
   settingsDrawer: document.getElementById('settings-drawer'),
@@ -46,6 +59,9 @@ let historyFilter = '';
 let lastState = null;
 let settingsOpen = false;
 let settingsCloseTimer = null;
+let dictionaryOpen = false;
+let dictionaryCloseTimer = null;
+let editingDictionaryRuleId = null;
 let toastHideTimer = null;
 
 const SETTINGS_CLOSE_DELAY_MS = 500;
@@ -226,6 +242,126 @@ function renderPreferences(state) {
   els.soundEffectsEnabled.checked = Boolean(state.soundEffectsEnabled);
 }
 
+function parseDictionarySources(value) {
+  const nextSources = [];
+  const seenSources = new Set();
+
+  for (const item of String(value || '')
+    .split(/\r?\n|;/)
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)) {
+    const key = item.toLocaleLowerCase('pt-BR');
+    if (seenSources.has(key)) {
+      continue;
+    }
+
+    seenSources.add(key);
+    nextSources.push(item);
+  }
+
+  return nextSources;
+}
+
+function getRuleSources(entry) {
+  if (Array.isArray(entry?.sources) && entry.sources.length > 0) {
+    return entry.sources;
+  }
+
+  if (entry?.source) {
+    return [String(entry.source).trim()].filter(Boolean);
+  }
+
+  return [];
+}
+
+function getDictionaryFormLanguages(fallbackLanguages = ['pt']) {
+  const nextLanguages = [
+    els.dictionaryLangPt.checked ? 'pt' : null,
+    els.dictionaryLangEn.checked ? 'en' : null,
+  ].filter(Boolean);
+
+  return nextLanguages.length > 0 ? nextLanguages : fallbackLanguages;
+}
+
+function setDictionaryFormMode(isEditing) {
+  els.cancelDictionaryEdit.classList.toggle('hidden', !isEditing);
+  els.submitDictionaryRule.textContent = isEditing ? 'Salvar regra' : 'Adicionar regra';
+}
+
+function resetDictionaryForm(allowedLanguages) {
+  const fallbackLanguages =
+    Array.isArray(allowedLanguages) && allowedLanguages.length > 0 ? allowedLanguages : ['pt'];
+
+  els.dictionaryForm.reset();
+  editingDictionaryRuleId = null;
+  els.dictionaryLangPt.checked = fallbackLanguages.includes('pt');
+  els.dictionaryLangEn.checked = fallbackLanguages.includes('en');
+  setDictionaryFormMode(false);
+}
+
+function startDictionaryEdit(entry) {
+  if (!entry) {
+    return;
+  }
+
+  editingDictionaryRuleId = entry.id;
+  els.dictionarySources.value = getRuleSources(entry).join('\n');
+  els.dictionaryTarget.value = entry.target || '';
+  els.dictionaryLangPt.checked = (entry.languages || []).includes('pt');
+  els.dictionaryLangEn.checked = (entry.languages || []).includes('en');
+  setDictionaryFormMode(true);
+  els.dictionarySources.focus();
+  els.dictionarySources.setSelectionRange(0, els.dictionarySources.value.length);
+}
+
+function renderDictionary(entries) {
+  const dictionaryEntries = Array.isArray(entries) ? entries : [];
+  els.dictionaryCount.textContent = `${integerNumber.format(dictionaryEntries.length)} regra${dictionaryEntries.length === 1 ? '' : 's'}`;
+
+  if (dictionaryEntries.length === 0) {
+    els.dictionaryList.innerHTML = '<div class="history-empty">Nenhuma regra cadastrada.</div>';
+    return;
+  }
+
+  els.dictionaryList.innerHTML = dictionaryEntries
+    .map((entry) => {
+      const sources = getRuleSources(entry);
+      const languageLabels = (entry.languages || []).map((language) => formatLanguage(language));
+      return `
+        <article class="dictionary-item">
+          <div class="dictionary-item__content">
+            <div class="dictionary-item__panel">
+              <span class="dictionary-item__label">Entradas</span>
+              <div class="dictionary-chip-list">
+                ${sources
+                  .map((source) => `<span class="dictionary-source-chip">${escapeHtml(source)}</span>`)
+                  .join('')}
+              </div>
+            </div>
+            <div class="dictionary-item__panel">
+              <span class="dictionary-item__label">Sa&iacute;da</span>
+              <strong class="dictionary-item__target">${escapeHtml(entry.target)}</strong>
+            </div>
+            <div class="dictionary-item__meta">
+              ${languageLabels
+                .map((label) => `<span class="dictionary-chip">${escapeHtml(label)}</span>`)
+                .join('')}
+            </div>
+          </div>
+          <div class="dictionary-item__actions">
+            <button class="secondary-button" data-dictionary-edit="${escapeHtml(entry.id)}" type="button">
+              Editar
+            </button>
+            <button class="copy-button" data-dictionary-remove="${escapeHtml(entry.id)}" type="button">
+              Remover
+            </button>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
+}
+
 function renderModels(state) {
   const stats = state.modelStats || {};
   const currentModel = state.model;
@@ -313,6 +449,7 @@ function renderState(state) {
   renderUsageSummary(state.usageSummary);
   renderLanguages(state.allowedLanguages);
   renderPreferences(state);
+  renderDictionary(state.dictionaryEntries);
   renderModels(state);
   renderHistory(state.history, state.historyTotal);
 
@@ -354,6 +491,43 @@ function setSettingsOpen(open) {
   }, SETTINGS_CLOSE_DELAY_MS);
 }
 
+function setDictionaryOpen(open) {
+  if (dictionaryCloseTimer) {
+    window.clearTimeout(dictionaryCloseTimer);
+    dictionaryCloseTimer = null;
+  }
+
+  dictionaryOpen = Boolean(open);
+  document.body.classList.toggle('dictionary-open', dictionaryOpen);
+
+  if (dictionaryOpen) {
+    if (lastState) {
+      resetDictionaryForm(lastState.allowedLanguages);
+    }
+
+    els.dictionaryWindow.classList.remove('hidden');
+    els.dictionaryBackdrop.classList.remove('hidden');
+
+    window.requestAnimationFrame(() => {
+      els.dictionaryWindow.classList.add('is-visible');
+      els.dictionaryBackdrop.classList.add('is-visible');
+      els.dictionaryWindow.setAttribute('aria-hidden', 'false');
+      els.dictionarySources.focus();
+      els.dictionarySources.setSelectionRange(0, els.dictionarySources.value.length);
+    });
+    return;
+  }
+
+  els.dictionaryWindow.classList.remove('is-visible');
+  els.dictionaryBackdrop.classList.remove('is-visible');
+  els.dictionaryWindow.setAttribute('aria-hidden', 'true');
+  dictionaryCloseTimer = window.setTimeout(() => {
+    els.dictionaryWindow.classList.add('hidden');
+    els.dictionaryBackdrop.classList.add('hidden');
+    dictionaryCloseTimer = null;
+  }, SETTINGS_CLOSE_DELAY_MS);
+}
+
 async function updateLanguages(nextLanguages) {
   const safeLanguages = nextLanguages.length > 0 ? nextLanguages : ['pt'];
   const state = await window.flowLocal.updateSettings({ allowedLanguages: safeLanguages });
@@ -377,12 +551,24 @@ function setupHandlers() {
     setSettingsOpen(true);
   });
 
+  els.openDictionary.addEventListener('click', () => {
+    setDictionaryOpen(true);
+  });
+
   els.closeSettings.addEventListener('click', () => {
     setSettingsOpen(false);
   });
 
+  els.closeDictionary.addEventListener('click', () => {
+    setDictionaryOpen(false);
+  });
+
   els.settingsBackdrop.addEventListener('click', () => {
     setSettingsOpen(false);
+  });
+
+  els.dictionaryBackdrop.addEventListener('click', () => {
+    setDictionaryOpen(false);
   });
 
   els.showOverlayBar.addEventListener('change', async () => {
@@ -428,7 +614,83 @@ function setupHandlers() {
     }, 1200);
   });
 
+  els.dictionaryForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const sources = parseDictionarySources(els.dictionarySources.value);
+    const target = (els.dictionaryTarget.value || '').trim();
+    const fallbackLanguages =
+      lastState && Array.isArray(lastState.allowedLanguages) && lastState.allowedLanguages.length > 0
+        ? lastState.allowedLanguages
+        : ['pt'];
+    const languages = getDictionaryFormLanguages(fallbackLanguages);
+
+    if (sources.length === 0 || !target) {
+      showToast('Preencha as entradas e a substituição.', false);
+      return;
+    }
+
+    const currentEntries = [...((lastState && lastState.dictionaryEntries) || [])];
+    const nextEntry = {
+      id: editingDictionaryRuleId || undefined,
+      sources,
+      target,
+      languages,
+    };
+    const nextEntries = editingDictionaryRuleId
+      ? currentEntries.map((entry) => (entry.id === editingDictionaryRuleId ? nextEntry : entry))
+      : [...currentEntries, nextEntry];
+    const state = await window.flowLocal.updateSettings({
+      dictionaryEntries: nextEntries,
+    });
+
+    renderState(state);
+    resetDictionaryForm(state.allowedLanguages);
+    els.dictionarySources.focus();
+  });
+
+  els.dictionaryList.addEventListener('click', async (event) => {
+    if (!lastState) {
+      return;
+    }
+
+    const editButton = event.target.closest('[data-dictionary-edit]');
+    if (editButton) {
+      const entryId = editButton.getAttribute('data-dictionary-edit');
+      const entry = (lastState.dictionaryEntries || []).find((item) => item.id === entryId);
+      startDictionaryEdit(entry);
+      return;
+    }
+
+    const removeButton = event.target.closest('[data-dictionary-remove]');
+    if (!removeButton) {
+      return;
+    }
+
+    const entryId = removeButton.getAttribute('data-dictionary-remove');
+    const nextEntries = (lastState.dictionaryEntries || []).filter((entry) => entry.id !== entryId);
+    const state = await window.flowLocal.updateSettings({
+      dictionaryEntries: nextEntries,
+    });
+    renderState(state);
+
+    if (editingDictionaryRuleId === entryId) {
+      resetDictionaryForm(state.allowedLanguages);
+    }
+  });
+
+  els.cancelDictionaryEdit.addEventListener('click', () => {
+    const allowedLanguages =
+      lastState && Array.isArray(lastState.allowedLanguages) ? lastState.allowedLanguages : ['pt'];
+    resetDictionaryForm(allowedLanguages);
+  });
+
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && dictionaryOpen) {
+      setDictionaryOpen(false);
+      return;
+    }
+
     if (event.key === 'Escape' && settingsOpen) {
       setSettingsOpen(false);
     }

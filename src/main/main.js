@@ -10,7 +10,7 @@ const DEFAULT_SHORTCUT = 'ctrl+windows';
 const DEFAULT_LANGUAGES = ['pt', 'en'];
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
-const PERSISTENCE_VERSION = 2;
+const PERSISTENCE_VERSION = 3;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
@@ -84,6 +84,10 @@ function normalizeLanguages(input) {
 function normalizeModel(modelId) {
   const value = String(modelId || '').trim();
   return MODEL_OPTIONS.some((option) => option.id === value) ? value : getDefaultModel();
+}
+
+function createDictionaryEntryId() {
+  return `dict_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function getModelOption(modelId) {
@@ -198,6 +202,122 @@ function normalizeHistory(history) {
     .filter(Boolean);
 }
 
+function normalizeDictionaryEntry(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+
+  const sourceValues = (Array.isArray(entry.sources) ? entry.sources : [entry.source])
+    .flatMap((value) => String(value || '').split(/\r?\n|;/))
+    .map((value) => value.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const sources = [];
+  const seenSources = new Set();
+
+  for (const value of sourceValues) {
+    const key = value.toLocaleLowerCase('pt-BR');
+    if (seenSources.has(key)) {
+      continue;
+    }
+
+    seenSources.add(key);
+    sources.push(value);
+  }
+  const target = String(entry.target || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (sources.length === 0 || !target) {
+    return null;
+  }
+
+  return {
+    id: String(entry.id || createDictionaryEntryId()),
+    sources,
+    target,
+    languages: normalizeLanguages(entry.languages),
+  };
+}
+
+function normalizeDictionaryEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  const seen = new Set();
+  return entries
+    .map((entry) => normalizeDictionaryEntry(entry))
+    .filter((entry) => {
+      if (!entry) {
+        return false;
+      }
+
+      const key =
+        `${entry.sources.map((value) => value.toLocaleLowerCase('pt-BR')).join('|')}` +
+        `__${entry.target}__${entry.languages.join(',')}`;
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildDictionaryPattern(source) {
+  const normalizedSource = String(source || '').trim();
+  const escapedSource = escapeRegExp(normalizedSource).replace(/\s+/g, '\\s+');
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapedSource}(?![\\p{L}\\p{N}_])`, 'giu');
+}
+
+function createDictionaryReplacementIndex(entries) {
+  const buckets = {
+    all: [],
+    pt: [],
+    en: [],
+  };
+
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!entry || !Array.isArray(entry.sources) || !entry.target) {
+      continue;
+    }
+
+    for (const source of entry.sources) {
+      const normalizedSource = String(source || '').trim();
+      if (!normalizedSource) {
+        continue;
+      }
+
+      const compiledEntry = {
+        source: normalizedSource,
+        sourceLength: normalizedSource.length,
+        target: entry.target,
+        pattern: buildDictionaryPattern(normalizedSource),
+      };
+
+      buckets.all.push(compiledEntry);
+
+      for (const language of Array.isArray(entry.languages) ? entry.languages : []) {
+        if (language === 'pt' || language === 'en') {
+          buckets[language].push(compiledEntry);
+        }
+      }
+    }
+  }
+
+  for (const bucket of Object.values(buckets)) {
+    bucket.sort((left, right) => right.sourceLength - left.sourceLength);
+  }
+
+  return buckets;
+}
+
+let dictionaryReplacementIndex = createDictionaryReplacementIndex([]);
+
 function normalizeUsageStats(stats) {
   const source = stats && typeof stats === 'object' ? stats : {};
   const activeDays = [...new Set((source.activeDays || []).map((value) => String(value).trim()))]
@@ -272,6 +392,7 @@ function getDefaultsFromEnv() {
     model: normalizeModel(getDefaultModel()),
     showOverlayBar: DEFAULT_SHOW_OVERLAY_BAR,
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
+    dictionaryEntries: [],
     overlayPosition: null,
   };
 }
@@ -305,10 +426,13 @@ const state = {
   usageStats: createEmptyUsageStats(),
   showOverlayBar: defaults.showOverlayBar,
   soundEffectsEnabled: defaults.soundEffectsEnabled,
+  dictionaryEntries: defaults.dictionaryEntries,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
   audioLevel: 0,
 };
+
+rebuildDictionaryReplacementIndex(defaults.dictionaryEntries);
 
 app.setName(APP_NAME);
 
@@ -345,6 +469,7 @@ function createEmptyPersistedState() {
       model: defaults.model,
       showOverlayBar: defaults.showOverlayBar,
       soundEffectsEnabled: defaults.soundEffectsEnabled,
+      dictionaryEntries: defaults.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
     modelStats: createEmptyStats(),
@@ -380,6 +505,7 @@ function normalizePersistedState(payload) {
         typeof preferencesSource.soundEffectsEnabled === 'boolean'
           ? preferencesSource.soundEffectsEnabled
           : defaults.soundEffectsEnabled,
+      dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
       overlayPosition: defaults.overlayPosition,
     },
     modelStats: normalizeStats(source.modelStats),
@@ -417,6 +543,7 @@ function savePersistentState() {
       model: state.model,
       showOverlayBar: state.showOverlayBar,
       soundEffectsEnabled: state.soundEffectsEnabled,
+      dictionaryEntries: state.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
     modelStats: state.modelStats,
@@ -641,6 +768,50 @@ function normalizeTextForPaste(text) {
   }
 
   return /[.,!?;:\n]$/.test(trimmed) ? trimmed : `${trimmed} `;
+}
+
+function rebuildDictionaryReplacementIndex(entries = state.dictionaryEntries) {
+  dictionaryReplacementIndex = createDictionaryReplacementIndex(entries);
+}
+
+function applyDictionaryReplacements(text, detectedLanguage) {
+  const input = String(text || '').trim();
+  if (!input || !Array.isArray(state.dictionaryEntries) || state.dictionaryEntries.length === 0) {
+    return input;
+  }
+
+  const language = String(detectedLanguage || '')
+    .trim()
+    .toLowerCase();
+  const scopedSources =
+    !language || language === 'unknown'
+      ? dictionaryReplacementIndex.all
+      : dictionaryReplacementIndex[language] || dictionaryReplacementIndex.all;
+
+  if (scopedSources.length === 0) {
+    return input;
+  }
+
+  let output = input;
+  const tokenPrefix = `__MEGAFALA_DICT_${Date.now().toString(36)}__`;
+  const replacements = [];
+
+  for (const entry of scopedSources) {
+    output = output.replace(entry.pattern, () => {
+      const token = `${tokenPrefix}${replacements.length}__`;
+      replacements.push({
+        token,
+        target: entry.target,
+      });
+      return token;
+    });
+  }
+
+  for (const replacement of replacements) {
+    output = output.replaceAll(replacement.token, replacement.target);
+  }
+
+  return output;
 }
 
 function getNextDictationSessionId() {
@@ -1102,21 +1273,22 @@ async function handleServiceEvent(event) {
         break;
       }
 
-      const pasteText = normalizeTextForPaste(text);
+      const resolvedText = applyDictionaryReplacements(text, payload.language);
+      const pasteText = normalizeTextForPaste(resolvedText);
       const entry = {
         model: payload.model || state.model,
-        text,
+        text: resolvedText,
         language: payload.language || 'unknown',
         transcriptionMs: payload.transcription_ms || 0,
         audioDurationMs: payload.audio_duration_ms || 0,
-        wordCount: countWords(text),
+        wordCount: countWords(resolvedText),
         timestamp: new Date().toISOString(),
       };
       const history = [entry, ...state.history];
       const usageStats = recordUsage(state.usageStats, entry);
 
       setState({
-        latestFinal: text,
+        latestFinal: resolvedText,
         latestLanguage: payload.language || 'unknown',
         partial: '',
         history,
@@ -1596,11 +1768,16 @@ async function applySettings(patch) {
     typeof patch.soundEffectsEnabled === 'boolean'
       ? patch.soundEffectsEnabled
       : state.soundEffectsEnabled;
+  const nextDictionaryEntries = Object.prototype.hasOwnProperty.call(patch, 'dictionaryEntries')
+    ? normalizeDictionaryEntries(patch.dictionaryEntries)
+    : state.dictionaryEntries;
 
   const modelChanged = nextModel !== state.model;
   const languagesChanged = nextLanguages.join(',') !== state.allowedLanguages.join(',');
   const overlayChanged = nextShowOverlayBar !== state.showOverlayBar;
   const soundEffectsChanged = nextSoundEffectsEnabled !== state.soundEffectsEnabled;
+  const dictionaryChanged =
+    JSON.stringify(nextDictionaryEntries) !== JSON.stringify(state.dictionaryEntries);
 
   let notice = state.notice;
   if (languagesChanged) {
@@ -1615,6 +1792,11 @@ async function applySettings(patch) {
     notice = nextSoundEffectsEnabled
       ? 'Feedback sonoro ativado.'
       : 'Feedback sonoro desativado.';
+  } else if (dictionaryChanged) {
+    notice =
+      nextDictionaryEntries.length > 0
+        ? `Dicionário ativo com ${nextDictionaryEntries.length} regra(s).`
+        : 'Dicionário limpo.';
   }
 
   setState({
@@ -1622,9 +1804,13 @@ async function applySettings(patch) {
     model: nextModel,
     showOverlayBar: nextShowOverlayBar,
     soundEffectsEnabled: nextSoundEffectsEnabled,
+    dictionaryEntries: nextDictionaryEntries,
     notice,
     error: '',
   });
+  if (dictionaryChanged) {
+    rebuildDictionaryReplacementIndex(nextDictionaryEntries);
+  }
 
   savePersistentState();
 
@@ -1698,8 +1884,10 @@ app.whenReady().then(() => {
     usageStats: persistedState.usageStats,
     showOverlayBar: persistedState.preferences.showOverlayBar,
     soundEffectsEnabled: persistedState.preferences.soundEffectsEnabled,
+    dictionaryEntries: persistedState.preferences.dictionaryEntries,
     overlayPosition: defaults.overlayPosition,
   });
+  rebuildDictionaryReplacementIndex(persistedState.preferences.dictionaryEntries);
 
   createWindow();
   createOverlayWindow();
