@@ -295,6 +295,7 @@ const state = {
   showOverlayBar: defaults.showOverlayBar,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
+  audioLevel: 0,
 };
 
 app.setName(APP_NAME);
@@ -557,6 +558,18 @@ function setState(patch) {
   }
 }
 
+function setOverlayAudioLevel(level) {
+  const nextLevel = clamp(Number(level) || 0, 0, 1);
+  const changed = Math.abs(nextLevel - state.audioLevel) >= 0.015 || (nextLevel === 0) !== (state.audioLevel === 0);
+  state.audioLevel = nextLevel;
+
+  if (!changed || !overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+
+  overlayWindow.webContents.send('overlay-audio-level', nextLevel);
+}
+
 function getServiceEnv() {
   return {
     ...process.env,
@@ -676,6 +689,7 @@ function startListening(mode = 'hold') {
   }
 
   const sessionId = getNextDictationSessionId();
+  setOverlayAudioLevel(0);
   setState({
     captureMode,
     dictationSessionId: sessionId,
@@ -691,6 +705,7 @@ function stopListening() {
   const nextNotice = clearHandsFreeNotice();
 
   if (!state.listening && !state.pendingStartMode) {
+    setOverlayAudioLevel(0);
     setState({
       captureMode: null,
       notice: nextNotice,
@@ -699,6 +714,7 @@ function stopListening() {
   }
 
   if (!state.serviceOnline || !state.engineReady) {
+    setOverlayAudioLevel(0);
     setState({
       pendingStartMode: null,
       captureMode: null,
@@ -712,6 +728,7 @@ function stopListening() {
     captureMode: null,
     notice: nextNotice,
   });
+  setOverlayAudioLevel(0);
   if (state.dictationSessionId !== null) {
     sendServiceCommand('stop', { session_id: state.dictationSessionId });
   }
@@ -746,6 +763,7 @@ function cancelDictation(source = 'escape') {
     notice: nextNotice,
     error: '',
   });
+  setOverlayAudioLevel(0);
 
   if (state.serviceOnline && state.engineReady && sessionId !== null) {
     sendServiceCommand('cancel', { session_id: sessionId });
@@ -810,29 +828,33 @@ async function handleServiceEvent(event) {
     case 'ready':
       {
         const pendingStartMode = state.pendingStartMode;
-      setState({
-        engineReady: true,
-        phase: 'idle',
-        serviceOnline: true,
-        model: payload.model || state.model,
-        device: payload.device || state.device,
-        deviceNote: payload.note || state.deviceNote,
-        switchingModel: false,
-        pendingPaste: false,
-        notice:
-          state.notice.startsWith('Trocando para ') && pendingStartMode !== 'hands-free'
-            ? ''
-            : state.notice,
-        error: '',
-      });
-      if (pendingStartMode === 'hands-free' || (pendingStartMode === 'hold' && state.hotkeyPressed)) {
-        startListening(pendingStartMode);
-      }
-      break;
+        setOverlayAudioLevel(0);
+        setState({
+          engineReady: true,
+          phase: 'idle',
+          serviceOnline: true,
+          model: payload.model || state.model,
+          device: payload.device || state.device,
+          deviceNote: payload.note || state.deviceNote,
+          switchingModel: false,
+          pendingPaste: false,
+          notice:
+            state.notice.startsWith('Trocando para ') && pendingStartMode !== 'hands-free'
+              ? ''
+              : state.notice,
+          error: '',
+        });
+        if (pendingStartMode === 'hands-free' || (pendingStartMode === 'hold' && state.hotkeyPressed)) {
+          startListening(pendingStartMode);
+        }
+        break;
       }
     case 'state':
       if (!isCurrentDictationSession(sessionId)) {
         break;
+      }
+      if (!payload.listening || payload.phase !== 'listening') {
+        setOverlayAudioLevel(0);
       }
       setState({
         listening: Boolean(payload.listening),
@@ -848,6 +870,12 @@ async function handleServiceEvent(event) {
           dictationSessionId: null,
         });
       }
+      break;
+    case 'level':
+      if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
+      setOverlayAudioLevel(payload.level);
       break;
     case 'partial':
       if (!isCurrentDictationSession(sessionId)) {
@@ -922,6 +950,7 @@ async function handleServiceEvent(event) {
         dictationSessionId: null,
         phase: 'error',
       });
+      setOverlayAudioLevel(0);
       break;
     default:
       break;
@@ -1014,6 +1043,7 @@ function bootDictationService() {
   });
 
   serviceProcess = localProcess;
+  setOverlayAudioLevel(0);
   setState({
     phase: 'booting',
     serviceOnline: true,
@@ -1039,6 +1069,7 @@ function bootDictationService() {
       if (localToken !== serviceToken) {
         return;
       }
+      setOverlayAudioLevel(0);
       setState({
         error: `Saida invalida do worker Python: ${error.message}`,
       });
@@ -1073,6 +1104,7 @@ function bootDictationService() {
       return;
     }
 
+    setOverlayAudioLevel(0);
     setState({
       serviceOnline: false,
       engineReady: false,
@@ -1090,6 +1122,7 @@ function bootDictationService() {
     }
 
     serviceProcess = null;
+    setOverlayAudioLevel(0);
     setState({
       serviceOnline: false,
       engineReady: false,

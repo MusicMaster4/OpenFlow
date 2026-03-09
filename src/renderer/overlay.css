@@ -11,6 +11,7 @@
   --overlay-loading-glow: rgba(239, 187, 184, 0.24);
   --overlay-error: #ff8a80;
   --overlay-shadow: 0 10px 22px rgba(0, 0, 0, 0.28);
+  --overlay-level: 0;
 }
 
 * {
@@ -104,7 +105,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 10px;
+  height: 16px;
 }
 
 .overlay-wave span {
@@ -113,23 +114,14 @@ body {
   border-radius: 999px;
   background: var(--overlay-recording);
   box-shadow: 0 0 6px var(--overlay-recording-glow);
-  animation: wave 680ms ease-in-out infinite;
-}
-
-.overlay-wave span:nth-child(2) {
-  animation-delay: 70ms;
-}
-
-.overlay-wave span:nth-child(3) {
-  animation-delay: 140ms;
-}
-
-.overlay-wave span:nth-child(4) {
-  animation-delay: 210ms;
-}
-
-.overlay-wave span:nth-child(5) {
-  animation-delay: 280ms;
+  opacity: 0.34;
+  transform-origin: center;
+  transition:
+    height 90ms linear,
+    opacity 90ms linear,
+    transform 90ms linear,
+    background 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .overlay-loader {
@@ -181,7 +173,7 @@ body {
 .overlay-shell[data-mode='recording'] .overlay-halo {
   opacity: 1;
   background: radial-gradient(circle, var(--overlay-recording-glow), transparent 72%);
-  animation: halo-breathe 920ms ease-in-out infinite;
+  transform: scale(calc(0.96 + (var(--overlay-level) * 0.08)));
 }
 
 .overlay-shell[data-hands-free='true'] .overlay-pill {
@@ -224,19 +216,6 @@ body {
   display: none;
 }
 
-@keyframes wave {
-  0%,
-  100% {
-    transform: scaleY(0.72);
-    opacity: 0.5;
-  }
-
-  50% {
-    transform: scaleY(1.85);
-    opacity: 1;
-  }
-}
-
 @keyframes pulse-dot {
   0%,
   100% {
@@ -247,17 +226,6 @@ body {
   50% {
     transform: scale(1.16);
     opacity: 1;
-  }
-}
-
-@keyframes halo-breathe {
-  0%,
-  100% {
-    transform: scale(0.97);
-  }
-
-  50% {
-    transform: scale(1.03);
   }
 }
 

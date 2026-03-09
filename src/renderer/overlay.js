@@ -10,6 +10,13 @@ const overlayEls = {
 let dragState = null;
 let queuedPoint = null;
 let dragFrame = 0;
+let levelFrame = 0;
+let currentAudioLevel = 0;
+let targetAudioLevel = 0;
+let lastOverlayMode = 'idle';
+
+const waveBars = Array.from(overlayEls.wave.querySelectorAll('span'));
+const barWeights = [0.46, 0.78, 1, 0.78, 0.46];
 
 function getOverlayMode(state) {
   switch (state.phase) {
@@ -116,6 +123,56 @@ function renderOverlay(state) {
   overlayEls.glyph.classList.toggle('hidden', mode === 'recording' || mode === 'loading');
   overlayEls.badge.classList.toggle('hidden', !handsFree);
   overlayEls.badge.setAttribute('aria-hidden', handsFree ? 'false' : 'true');
+
+  if (mode !== 'recording') {
+    setAudioLevel(0);
+  } else if (lastOverlayMode !== 'recording') {
+    setAudioLevel(state.audioLevel || 0);
+  }
+
+  lastOverlayMode = mode;
+}
+
+function applyWaveLevel(level) {
+  const clampedLevel = Math.max(0, Math.min(1, Number(level) || 0));
+  overlayEls.shell.style.setProperty('--overlay-level', clampedLevel.toFixed(3));
+
+  waveBars.forEach((bar, index) => {
+    const intensity = Math.min(1, clampedLevel * barWeights[index]);
+    const height = 3 + intensity * 12;
+    const opacity = 0.34 + intensity * 0.66;
+    const scale = 0.82 + intensity * 0.24;
+    bar.style.height = `${height.toFixed(2)}px`;
+    bar.style.opacity = opacity.toFixed(3);
+    bar.style.transform = `scaleY(${scale.toFixed(3)})`;
+  });
+}
+
+function animateWave() {
+  levelFrame = 0;
+  const delta = targetAudioLevel - currentAudioLevel;
+  if (Math.abs(delta) < 0.004) {
+    currentAudioLevel = targetAudioLevel;
+    applyWaveLevel(currentAudioLevel);
+    return;
+  }
+
+  currentAudioLevel += delta * 0.34;
+  applyWaveLevel(currentAudioLevel);
+  levelFrame = window.requestAnimationFrame(animateWave);
+}
+
+function setAudioLevel(level) {
+  targetAudioLevel = Math.max(0, Math.min(1, Number(level) || 0));
+  if (Math.abs(targetAudioLevel - currentAudioLevel) < 0.004) {
+    currentAudioLevel = targetAudioLevel;
+    applyWaveLevel(currentAudioLevel);
+    return;
+  }
+
+  if (!levelFrame) {
+    levelFrame = window.requestAnimationFrame(animateWave);
+  }
 }
 
 function bindDrag() {
@@ -130,11 +187,19 @@ function bindDrag() {
 
 async function bootstrap() {
   const initialState = await window.flowOverlay.getState();
+  applyWaveLevel(initialState.audioLevel || 0);
   renderOverlay(initialState);
   bindDrag();
 
   window.flowOverlay.onStateUpdate((state) => {
     renderOverlay(state);
+  });
+  window.flowOverlay.onAudioLevelUpdate((level) => {
+    if (lastOverlayMode !== 'recording') {
+      return;
+    }
+
+    setAudioLevel(level);
   });
 }
 

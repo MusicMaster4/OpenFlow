@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import queue
 import site
@@ -387,6 +388,23 @@ class DictationService:
 
     def _process_frame(self, frame: bytes) -> None:
         is_speech = self.vad.is_speech(frame, self.sample_rate)
+        samples = np.frombuffer(frame, dtype=np.int16)
+        if samples.size:
+            rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32)))))
+            level = min(1.0, math.sqrt((rms / 32768.0) * 14.0))
+        else:
+            level = 0.0
+
+        if not is_speech:
+            level *= 0.12
+
+        self.emit(
+            "level",
+            {
+                "level": round(level, 4),
+                "session_id": self.current_session_id,
+            },
+        )
 
         if not self.triggered:
             self.ring_buffer.append((frame, is_speech))
