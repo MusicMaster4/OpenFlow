@@ -64,9 +64,114 @@ const SUPPORTED_INTERFACE_LANGUAGES = [
   'tr',
 ];
 
+const SUPPORTED_DETECTION_LANGUAGES = [
+  'af',
+  'am',
+  'ar',
+  'as',
+  'az',
+  'ba',
+  'be',
+  'bg',
+  'bn',
+  'bo',
+  'br',
+  'bs',
+  'ca',
+  'cs',
+  'cy',
+  'da',
+  'de',
+  'el',
+  'en',
+  'es',
+  'et',
+  'eu',
+  'fa',
+  'fi',
+  'fo',
+  'fr',
+  'gl',
+  'gu',
+  'ha',
+  'haw',
+  'he',
+  'hi',
+  'hr',
+  'ht',
+  'hu',
+  'hy',
+  'id',
+  'is',
+  'it',
+  'ja',
+  'jw',
+  'ka',
+  'kk',
+  'km',
+  'kn',
+  'ko',
+  'la',
+  'lb',
+  'ln',
+  'lo',
+  'lt',
+  'lv',
+  'mg',
+  'mi',
+  'mk',
+  'ml',
+  'mn',
+  'mr',
+  'ms',
+  'mt',
+  'my',
+  'ne',
+  'nl',
+  'nn',
+  'no',
+  'oc',
+  'pa',
+  'pl',
+  'ps',
+  'pt',
+  'ro',
+  'ru',
+  'sa',
+  'sd',
+  'si',
+  'sk',
+  'sl',
+  'sn',
+  'so',
+  'sq',
+  'sr',
+  'su',
+  'sv',
+  'sw',
+  'ta',
+  'te',
+  'tg',
+  'th',
+  'tk',
+  'tl',
+  'tr',
+  'tt',
+  'uk',
+  'ur',
+  'uz',
+  'vi',
+  'yi',
+  'yo',
+  'zh',
+  'yue',
+];
+
+const SUPPORTED_DICTIONARY_LANGUAGES = ['pt', 'en'];
+
 const MAIN_TRANSLATIONS = {
   en: {
-    activeLanguages: 'Active detection languages: {languages}.',
+    activeLanguages: 'Detection languages: {summary}.',
     switchingModel: 'Switching to {model}...',
     overlayOn: 'Floating bar enabled.',
     overlayOff: 'Floating bar disabled.',
@@ -84,7 +189,7 @@ const MAIN_TRANSLATIONS = {
     waitingBootHold: 'The model is still loading. Wait a few seconds.',
   },
   'pt-BR': {
-    activeLanguages: 'Idiomas de deteccao ativos: {languages}.',
+    activeLanguages: 'Idiomas de deteccao: {summary}.',
     switchingModel: 'Trocando para {model}...',
     overlayOn: 'Barra flutuante ativada.',
     overlayOff: 'Barra flutuante desativada.',
@@ -127,15 +232,27 @@ function getDefaultModel() {
   return process.env.WHISPER_MODEL || 'medium';
 }
 
-function normalizeLanguages(input) {
+function normalizeLanguageSelection(input, supportedLanguages, fallbackLanguages) {
   const values = Array.isArray(input)
     ? input
     : String(input || '')
         .split(',')
         .map((value) => value.trim());
 
-  const languages = values.filter((value) => value === 'pt' || value === 'en');
-  return languages.length > 0 ? [...new Set(languages)] : [...DEFAULT_LANGUAGES];
+  const supportedSet = new Set(supportedLanguages);
+  const languages = values
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter((value) => supportedSet.has(value));
+
+  return languages.length > 0 ? [...new Set(languages)] : [...fallbackLanguages];
+}
+
+function normalizeDetectionLanguages(input) {
+  return normalizeLanguageSelection(input, SUPPORTED_DETECTION_LANGUAGES, DEFAULT_LANGUAGES);
+}
+
+function normalizeDictionaryLanguages(input) {
+  return normalizeLanguageSelection(input, SUPPORTED_DICTIONARY_LANGUAGES, DEFAULT_LANGUAGES);
 }
 
 function normalizeInterfaceLanguage(input) {
@@ -152,6 +269,47 @@ function translateMain(key, params = {}, language = state.interfaceLanguage) {
     getTranslationBundle(language)[key] || MAIN_TRANSLATIONS.en[key] || String(key || '');
 
   return template.replace(/\{(\w+)\}/g, (_match, token) => String(params[token] ?? ''));
+}
+
+function capitalizeLabel(value, language = state.interfaceLanguage) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return text;
+  }
+
+  return text.replace(/^\p{L}/u, (match) => match.toLocaleUpperCase(language));
+}
+
+function getLocalizedDetectionLanguageName(code, language = state.interfaceLanguage) {
+  const normalizedLanguage = normalizeInterfaceLanguage(language);
+  const normalizedCode = String(code || '').trim().toLowerCase();
+
+  try {
+    return (
+      new Intl.DisplayNames([normalizedLanguage], { type: 'language' }).of(normalizedCode) ||
+      normalizedCode.toUpperCase()
+    );
+  } catch (_error) {
+    return normalizedCode.toUpperCase();
+  }
+}
+
+function formatDetectionLanguagesSummary(languages, language = state.interfaceLanguage) {
+  const list = Array.isArray(languages) ? languages : [];
+  const normalizedLanguage = normalizeInterfaceLanguage(language);
+
+  if (list.length <= 3) {
+    return list
+      .map((code) =>
+        capitalizeLabel(
+          getLocalizedDetectionLanguageName(code, normalizedLanguage),
+          normalizedLanguage,
+        ),
+      )
+      .join(', ');
+  }
+
+  return normalizedLanguage === 'pt-BR' ? `${list.length} selecionados` : `${list.length} selected`;
 }
 
 function getLocalizedLanguageName(code, language = state.interfaceLanguage) {
@@ -336,7 +494,7 @@ function normalizeDictionaryEntry(entry) {
     id: String(entry.id || createDictionaryEntryId()),
     sources,
     target,
-    languages: normalizeLanguages(entry.languages),
+    languages: normalizeDictionaryLanguages(entry.languages),
   };
 }
 
@@ -489,7 +647,9 @@ function clamp(value, min, max) {
 function getDefaultsFromEnv() {
   return {
     shortcut: String(process.env.FLOW_HOTKEY || DEFAULT_SHORTCUT).toLowerCase(),
-    allowedLanguages: normalizeLanguages(process.env.ALLOWED_LANGUAGES || DEFAULT_LANGUAGES.join(',')),
+    allowedLanguages: normalizeDetectionLanguages(
+      process.env.ALLOWED_LANGUAGES || DEFAULT_LANGUAGES.join(','),
+    ),
     interfaceLanguage: normalizeInterfaceLanguage(process.env.INTERFACE_LANGUAGE),
     model: normalizeModel(getDefaultModel()),
     showOverlayBar: DEFAULT_SHOW_OVERLAY_BAR,
@@ -510,6 +670,7 @@ const state = {
   partial: '',
   latestFinal: '',
   latestLanguage: null,
+  supportedDetectionLanguages: SUPPORTED_DETECTION_LANGUAGES,
   interfaceLanguage: defaults.interfaceLanguage,
   model: defaults.model,
   availableModels: MODEL_OPTIONS,
@@ -599,7 +760,7 @@ function normalizePersistedState(payload) {
   return {
     version: PERSISTENCE_VERSION,
     preferences: {
-      allowedLanguages: normalizeLanguages(preferencesSource.allowedLanguages),
+      allowedLanguages: normalizeDetectionLanguages(preferencesSource.allowedLanguages),
       interfaceLanguage: normalizeInterfaceLanguage(preferencesSource.interfaceLanguage),
       model: normalizeModel(preferencesSource.model),
       showOverlayBar:
@@ -1865,8 +2026,8 @@ async function restartDictationService() {
 }
 
 async function applySettings(patch) {
-  const nextLanguages = patch.allowedLanguages
-    ? normalizeLanguages(patch.allowedLanguages)
+  const nextLanguages = Object.prototype.hasOwnProperty.call(patch, 'allowedLanguages')
+    ? normalizeDetectionLanguages(patch.allowedLanguages)
     : state.allowedLanguages;
   const nextInterfaceLanguage = Object.prototype.hasOwnProperty.call(patch, 'interfaceLanguage')
     ? normalizeInterfaceLanguage(patch.interfaceLanguage)
@@ -1895,7 +2056,7 @@ async function applySettings(patch) {
     notice = translateMain(
       'activeLanguages',
       {
-        languages: nextLanguages.map((language) => language.toUpperCase()).join(', '),
+        summary: formatDetectionLanguagesSummary(nextLanguages, nextInterfaceLanguage),
       },
       nextInterfaceLanguage,
     );

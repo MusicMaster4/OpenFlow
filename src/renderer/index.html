@@ -187,17 +187,29 @@
             <div class="section-head">
               <div>
                 <h2 data-i18n="detectionLanguages">Detection languages</h2>
+                <p class="section-head__copy" data-i18n="detectionLanguagesCopy">
+                  Portuguese and English are enabled by default. Expand to add more languages.
+                </p>
               </div>
             </div>
-            <div class="language-grid">
-              <label class="language-option">
-                <input id="lang-pt" type="checkbox" value="pt" />
-                <span id="lang-pt-label">Português</span>
+            <div class="language-grid" id="detection-language-defaults"></div>
+            <div class="detection-language-toolbar">
+              <span class="detection-language-summary" id="detection-language-summary"></span>
+              <button class="secondary-button" id="toggle-detection-languages" type="button">
+                Show more languages
+              </button>
+            </div>
+            <div class="detection-language-more hidden" id="detection-language-more">
+              <label class="search-field search-field--settings" for="detection-language-search">
+                <span data-i18n="searchDetectionLanguage">Search language</span>
+                <input
+                  id="detection-language-search"
+                  type="search"
+                  data-i18n-placeholder="detectionLanguageSearchPlaceholder"
+                  placeholder="Search detection languages..."
+                />
               </label>
-              <label class="language-option">
-                <input id="lang-en" type="checkbox" value="en" />
-                <span id="lang-en-label">English</span>
-              </label>
+              <div class="interface-language-list detection-language-list" id="detection-language-list"></div>
             </div>
           </div>
 

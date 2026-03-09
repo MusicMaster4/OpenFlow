@@ -86,10 +86,12 @@ REGISTERED_CUDA_DIRS = _bootstrap_windows_cuda_runtime()
 
 import ctranslate2
 from faster_whisper import WhisperModel
+from faster_whisper.tokenizer import _LANGUAGE_CODES
 
 load_dotenv()
 
-SUPPORTED_LANGUAGES = ("pt", "en")
+DEFAULT_ALLOWED_LANGUAGES = ("pt", "en")
+SUPPORTED_LANGUAGES = tuple(dict.fromkeys(_LANGUAGE_CODES))
 
 
 def normalize_languages(values) -> list[str]:
@@ -99,7 +101,7 @@ def normalize_languages(values) -> list[str]:
         raw_values = [str(value).strip().lower() for value in values]
 
     languages = [value for value in raw_values if value in SUPPORTED_LANGUAGES]
-    return list(dict.fromkeys(languages)) or list(SUPPORTED_LANGUAGES)
+    return list(dict.fromkeys(languages)) or list(DEFAULT_ALLOWED_LANGUAGES)
 
 
 class DictationService:

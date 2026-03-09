@@ -956,6 +956,80 @@ h1, h2, h3 {
 .language-option:hover { border-color: var(--panel-border-strong); }
 .language-option input { accent-color: var(--button-solid-bg); width: 16px; height: 16px; }
 
+.detection-language-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 0;
+}
+
+.detection-language-summary {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.detection-language-more {
+  margin-top: 14px;
+}
+
+.detection-language-list {
+  max-height: 280px;
+}
+
+.detection-language-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-subtle);
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.detection-language-card:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--button-hover);
+}
+
+.detection-language-card--active {
+  border-color: var(--text);
+}
+
+.detection-language-card input {
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--button-solid-bg);
+  flex-shrink: 0;
+}
+
+.detection-language-card__copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detection-language-card__copy strong {
+  font-size: 0.95rem;
+}
+
+.detection-language-card__copy span,
+.detection-language-card__meta {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.detection-language-card__meta {
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .interface-language-list {
   display: flex;
   flex-direction: column;
@@ -1085,6 +1159,10 @@ h1, h2, h3 {
   }
   .dictionary-section__head-actions {
     justify-content: flex-start;
+  }
+  .detection-language-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
   .dictionary-form__grid,
   .language-grid,

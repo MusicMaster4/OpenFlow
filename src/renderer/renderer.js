@@ -2,6 +2,9 @@ const SUPPORTED_INTERFACE_LANGUAGES = [
   'en', 'pt-BR', 'es', 'fr', 'de', 'it', 'nl', 'el', 'ru', 'zh-CN', 'ja', 'ko', 'ar', 'hi', 'tr',
 ];
 
+const DEFAULT_DETECTION_LANGUAGES = ['pt', 'en'];
+const DICTIONARY_LANGUAGE_CODES = ['pt', 'en'];
+
 const TRANSLATIONS = {
   en: {
     appTagline: 'Write at the speed of thought.',
@@ -20,7 +23,7 @@ const TRANSLATIONS = {
     noSearchResults: 'No transcriptions found for this search.',
     settingsCopy: 'Appearance, language, and AI model preferences.',
     interfaceLanguage: 'Interface language',
-    interfaceLanguageCopy: 'Search and switch the app language instantly. The app defaults to English.',
+    interfaceLanguageCopy: 'Search and switch the app language instantly.',
     searchLanguage: 'Search language',
     languageSearchPlaceholder: 'Search your language...',
     noLanguageResults: 'No languages match your search.',
@@ -34,6 +37,13 @@ const TRANSLATIONS = {
     soundEffects: 'Sound feedback',
     soundEffectsCopy: 'Play sounds on load, start, stop, cancel, and hands-free activation.',
     detectionLanguages: 'Detection languages',
+    detectionLanguagesCopy: 'Portuguese and English are enabled by default. Expand to add more languages.',
+    searchDetectionLanguage: 'Search language',
+    detectionLanguageSearchPlaceholder: 'Search detection languages...',
+    showMoreLanguages: 'Show more languages',
+    showLessLanguages: 'Show fewer languages',
+    noDetectionLanguageResults: 'No detection languages match your search.',
+    keepOneDetectionLanguage: 'Keep at least one detection language selected.',
     transcriptionModels: 'Transcription models',
     resetAverage: 'Reset average',
     systemDiagnostics: 'System diagnostics',
@@ -80,7 +90,7 @@ const TRANSLATIONS = {
     noSearchResults: 'Nenhuma transcrição encontrada para essa busca.',
     settingsCopy: 'Ajustes de aparência, idioma e modelo de IA.',
     interfaceLanguage: 'Idioma da interface',
-    interfaceLanguageCopy: 'Pesquise e troque o idioma do app na hora. O padrão é inglês.',
+    interfaceLanguageCopy: 'Pesquise e troque o idioma do app na hora.',
     searchLanguage: 'Pesquisar idioma',
     languageSearchPlaceholder: 'Pesquise seu idioma...',
     noLanguageResults: 'Nenhum idioma corresponde à busca.',
@@ -94,6 +104,13 @@ const TRANSLATIONS = {
     soundEffects: 'Sons de feedback',
     soundEffectsCopy: 'Toca sons ao carregar, iniciar, encerrar, cancelar e ativar hands-free.',
     detectionLanguages: 'Idiomas de detecção',
+    detectionLanguagesCopy: 'Português e inglês vêm ativos por padrão. Expanda para adicionar outros idiomas.',
+    searchDetectionLanguage: 'Pesquisar idioma',
+    detectionLanguageSearchPlaceholder: 'Pesquise os idiomas de detecção...',
+    showMoreLanguages: 'Mostrar mais idiomas',
+    showLessLanguages: 'Mostrar menos idiomas',
+    noDetectionLanguageResults: 'Nenhum idioma de detecção corresponde à busca.',
+    keepOneDetectionLanguage: 'Mantenha pelo menos um idioma de detecção ativo.',
     transcriptionModels: 'Modelos de transcrição',
     resetAverage: 'Resetar média',
     systemDiagnostics: 'Diagnóstico do sistema',
@@ -126,19 +143,19 @@ const TRANSLATIONS = {
 };
 
 Object.assign(TRANSLATIONS, {
-  es: { settings: 'Configuración', interfaceLanguage: 'Idioma de la interfaz', interfaceLanguageCopy: 'Busca y cambia el idioma de la app al instante. El valor predeterminado es inglés.', searchLanguage: 'Buscar idioma', languageSearchPlaceholder: 'Busca tu idioma...', selectedLanguage: 'Seleccionado', appearance: 'Apariencia', darkMode: 'Modo oscuro', lightMode: 'Modo claro', floatingBar: 'Barra flotante', detectionLanguages: 'Idiomas de detección', transcriptionModels: 'Modelos de transcripción', systemDiagnostics: 'Diagnóstico del sistema', close: 'Cerrar', dictionary: 'Diccionario' },
-  fr: { settings: 'Paramètres', interfaceLanguage: "Langue de l'interface", interfaceLanguageCopy: "Recherchez et changez instantanément la langue de l'application. Anglais par défaut.", searchLanguage: 'Rechercher une langue', languageSearchPlaceholder: 'Recherchez votre langue...', selectedLanguage: 'Sélectionné', appearance: 'Apparence', darkMode: 'Mode sombre', lightMode: 'Mode clair', floatingBar: 'Barre flottante', detectionLanguages: 'Langues de détection', transcriptionModels: 'Modèles de transcription', systemDiagnostics: 'Diagnostic système', close: 'Fermer', dictionary: 'Dictionnaire' },
-  de: { settings: 'Einstellungen', interfaceLanguage: 'Sprache der Oberfläche', interfaceLanguageCopy: 'Suche und wechsle die App-Sprache sofort. Standard ist Englisch.', searchLanguage: 'Sprache suchen', languageSearchPlaceholder: 'Sprache suchen...', selectedLanguage: 'Ausgewählt', appearance: 'Darstellung', darkMode: 'Dunkelmodus', lightMode: 'Hellmodus', floatingBar: 'Schwebende Leiste', detectionLanguages: 'Erkennungssprachen', transcriptionModels: 'Transkriptionsmodelle', systemDiagnostics: 'Systemdiagnose', close: 'Schließen', dictionary: 'Wörterbuch' },
-  it: { settings: 'Impostazioni', interfaceLanguage: "Lingua dell'interfaccia", interfaceLanguageCopy: "Cerca e cambia subito la lingua dell'app. La predefinita è l'inglese.", searchLanguage: 'Cerca lingua', languageSearchPlaceholder: 'Cerca la tua lingua...', selectedLanguage: 'Selezionato', appearance: 'Aspetto', darkMode: 'Modalità scura', lightMode: 'Modalità chiara', floatingBar: 'Barra flottante', detectionLanguages: 'Lingue di rilevamento', transcriptionModels: 'Modelli di trascrizione', systemDiagnostics: 'Diagnostica di sistema', close: 'Chiudi', dictionary: 'Dizionario' },
-  nl: { settings: 'Instellingen', interfaceLanguage: 'Interfacetaal', interfaceLanguageCopy: 'Zoek en wissel direct van app-taal. Engels is de standaard.', searchLanguage: 'Taal zoeken', languageSearchPlaceholder: 'Zoek je taal...', selectedLanguage: 'Geselecteerd', appearance: 'Weergave', darkMode: 'Donkere modus', lightMode: 'Lichte modus', floatingBar: 'Zwevende balk', detectionLanguages: 'Detectietalen', transcriptionModels: 'Transcriptiemodellen', systemDiagnostics: 'Systeemdiagnostiek', close: 'Sluiten', dictionary: 'Woordenboek' },
-  el: { settings: 'Ρυθμίσεις', interfaceLanguage: 'Γλώσσα διεπαφής', interfaceLanguageCopy: 'Αναζητήστε και αλλάξτε άμεσα τη γλώσσα της εφαρμογής. Προεπιλογή είναι τα αγγλικά.', searchLanguage: 'Αναζήτηση γλώσσας', languageSearchPlaceholder: 'Αναζητήστε τη γλώσσα σας...', selectedLanguage: 'Επιλεγμένο', appearance: 'Εμφάνιση', darkMode: 'Σκούρο θέμα', lightMode: 'Ανοιχτό θέμα', floatingBar: 'Πλωτή μπάρα', detectionLanguages: 'Γλώσσες ανίχνευσης', transcriptionModels: 'Μοντέλα απομαγνητοφώνησης', systemDiagnostics: 'Διαγνωστικά συστήματος', close: 'Κλείσιμο', dictionary: 'Λεξικό' },
-  ru: { settings: 'Настройки', interfaceLanguage: 'Язык интерфейса', interfaceLanguageCopy: 'Ищите и мгновенно переключайте язык приложения. По умолчанию английский.', searchLanguage: 'Поиск языка', languageSearchPlaceholder: 'Найдите свой язык...', selectedLanguage: 'Выбран', appearance: 'Внешний вид', darkMode: 'Тёмная тема', lightMode: 'Светлая тема', floatingBar: 'Плавающая панель', detectionLanguages: 'Языки распознавания', transcriptionModels: 'Модели транскрипции', systemDiagnostics: 'Диагностика системы', close: 'Закрыть', dictionary: 'Словарь' },
-  'zh-CN': { settings: '设置', interfaceLanguage: '界面语言', interfaceLanguageCopy: '搜索并立即切换应用语言。默认语言为英语。', searchLanguage: '搜索语言', languageSearchPlaceholder: '搜索你的语言...', selectedLanguage: '已选择', appearance: '外观', darkMode: '深色模式', lightMode: '浅色模式', floatingBar: '悬浮条', detectionLanguages: '检测语言', transcriptionModels: '转录模型', systemDiagnostics: '系统诊断', close: '关闭', dictionary: '词典' },
-  ja: { settings: '設定', interfaceLanguage: 'インターフェース言語', interfaceLanguageCopy: '言語を検索してすぐに切り替えられます。既定は英語です。', searchLanguage: '言語を検索', languageSearchPlaceholder: '言語を検索...', selectedLanguage: '選択中', appearance: '表示', darkMode: 'ダークモード', lightMode: 'ライトモード', floatingBar: 'フローティングバー', detectionLanguages: '検出言語', transcriptionModels: '文字起こしモデル', systemDiagnostics: 'システム診断', close: '閉じる', dictionary: '辞書' },
-  ko: { settings: '설정', interfaceLanguage: '인터페이스 언어', interfaceLanguageCopy: '언어를 검색하고 즉시 앱 언어를 바꿀 수 있습니다. 기본값은 영어입니다.', searchLanguage: '언어 검색', languageSearchPlaceholder: '언어 검색...', selectedLanguage: '선택됨', appearance: '화면', darkMode: '다크 모드', lightMode: '라이트 모드', floatingBar: '플로팅 바', detectionLanguages: '감지 언어', transcriptionModels: '전사 모델', systemDiagnostics: '시스템 진단', close: '닫기', dictionary: '사전' },
-  ar: { settings: 'الإعدادات', interfaceLanguage: 'لغة الواجهة', interfaceLanguageCopy: 'ابحث عن لغة التطبيق وبدلها فورًا. اللغة الافتراضية هي الإنجليزية.', searchLanguage: 'ابحث عن لغة', languageSearchPlaceholder: 'ابحث عن لغتك...', selectedLanguage: 'محدد', appearance: 'المظهر', darkMode: 'الوضع الداكن', lightMode: 'الوضع الفاتح', floatingBar: 'الشريط العائم', detectionLanguages: 'لغات الاكتشاف', transcriptionModels: 'نماذج النسخ', systemDiagnostics: 'تشخيص النظام', close: 'إغلاق', dictionary: 'القاموس' },
-  hi: { settings: 'सेटिंग्स', interfaceLanguage: 'इंटरफ़ेस भाषा', interfaceLanguageCopy: 'अपनी भाषा खोजें और तुरंत ऐप की भाषा बदलें। डिफ़ॉल्ट अंग्रेज़ी है।', searchLanguage: 'भाषा खोजें', languageSearchPlaceholder: 'अपनी भाषा खोजें...', selectedLanguage: 'चयनित', appearance: 'रूप', darkMode: 'डार्क मोड', lightMode: 'लाइट मोड', floatingBar: 'फ़्लोटिंग बार', detectionLanguages: 'पता लगाने की भाषाएँ', transcriptionModels: 'ट्रांसक्रिप्शन मॉडल', systemDiagnostics: 'सिस्टम डायग्नोस्टिक्स', close: 'बंद करें', dictionary: 'शब्दकोश' },
-  tr: { settings: 'Ayarlar', interfaceLanguage: 'Arayüz dili', interfaceLanguageCopy: 'Dil arayın ve uygulama dilini anında değiştirin. Varsayılan İngilizcedir.', searchLanguage: 'Dil ara', languageSearchPlaceholder: 'Dilini ara...', selectedLanguage: 'Seçili', appearance: 'Görünüm', darkMode: 'Koyu mod', lightMode: 'Açık mod', floatingBar: 'Yüzen çubuk', detectionLanguages: 'Algılama dilleri', transcriptionModels: 'Döküm modelleri', systemDiagnostics: 'Sistem tanıları', close: 'Kapat', dictionary: 'Sözlük' },
+  es: { settings: 'Configuración', interfaceLanguage: 'Idioma de la interfaz', interfaceLanguageCopy: 'Busca y cambia el idioma de la app al instante.', searchLanguage: 'Buscar idioma', languageSearchPlaceholder: 'Busca tu idioma...', selectedLanguage: 'Seleccionado', appearance: 'Apariencia', darkMode: 'Modo oscuro', lightMode: 'Modo claro', floatingBar: 'Barra flotante', detectionLanguages: 'Idiomas de detección', transcriptionModels: 'Modelos de transcripción', systemDiagnostics: 'Diagnóstico del sistema', close: 'Cerrar', dictionary: 'Diccionario' },
+  fr: { settings: 'Paramètres', interfaceLanguage: "Langue de l'interface", interfaceLanguageCopy: "Recherchez et changez instantanément la langue de l'application.", searchLanguage: 'Rechercher une langue', languageSearchPlaceholder: 'Recherchez votre langue...', selectedLanguage: 'Sélectionné', appearance: 'Apparence', darkMode: 'Mode sombre', lightMode: 'Mode clair', floatingBar: 'Barre flottante', detectionLanguages: 'Langues de détection', transcriptionModels: 'Modèles de transcription', systemDiagnostics: 'Diagnostic système', close: 'Fermer', dictionary: 'Dictionnaire' },
+  de: { settings: 'Einstellungen', interfaceLanguage: 'Sprache der Oberfläche', interfaceLanguageCopy: 'Suche und wechsle die App-Sprache sofort.', searchLanguage: 'Sprache suchen', languageSearchPlaceholder: 'Sprache suchen...', selectedLanguage: 'Ausgewählt', appearance: 'Darstellung', darkMode: 'Dunkelmodus', lightMode: 'Hellmodus', floatingBar: 'Schwebende Leiste', detectionLanguages: 'Erkennungssprachen', transcriptionModels: 'Transkriptionsmodelle', systemDiagnostics: 'Systemdiagnose', close: 'Schließen', dictionary: 'Wörterbuch' },
+  it: { settings: 'Impostazioni', interfaceLanguage: "Lingua dell'interfaccia", interfaceLanguageCopy: "Cerca e cambia subito la lingua dell'app.", searchLanguage: 'Cerca lingua', languageSearchPlaceholder: 'Cerca la tua lingua...', selectedLanguage: 'Selezionato', appearance: 'Aspetto', darkMode: 'Modalità scura', lightMode: 'Modalità chiara', floatingBar: 'Barra flottante', detectionLanguages: 'Lingue di rilevamento', transcriptionModels: 'Modelli di trascrizione', systemDiagnostics: 'Diagnostica di sistema', close: 'Chiudi', dictionary: 'Dizionario' },
+  nl: { settings: 'Instellingen', interfaceLanguage: 'Interfacetaal', interfaceLanguageCopy: 'Zoek en wissel direct van app-taal.', searchLanguage: 'Taal zoeken', languageSearchPlaceholder: 'Zoek je taal...', selectedLanguage: 'Geselecteerd', appearance: 'Weergave', darkMode: 'Donkere modus', lightMode: 'Lichte modus', floatingBar: 'Zwevende balk', detectionLanguages: 'Detectietalen', transcriptionModels: 'Transcriptiemodellen', systemDiagnostics: 'Systeemdiagnostiek', close: 'Sluiten', dictionary: 'Woordenboek' },
+  el: { settings: 'Ρυθμίσεις', interfaceLanguage: 'Γλώσσα διεπαφής', interfaceLanguageCopy: 'Αναζητήστε και αλλάξτε άμεσα τη γλώσσα της εφαρμογής.', searchLanguage: 'Αναζήτηση γλώσσας', languageSearchPlaceholder: 'Αναζητήστε τη γλώσσα σας...', selectedLanguage: 'Επιλεγμένο', appearance: 'Εμφάνιση', darkMode: 'Σκούρο θέμα', lightMode: 'Ανοιχτό θέμα', floatingBar: 'Πλωτή μπάρα', detectionLanguages: 'Γλώσσες ανίχνευσης', transcriptionModels: 'Μοντέλα απομαγνητοφώνησης', systemDiagnostics: 'Διαγνωστικά συστήματος', close: 'Κλείσιμο', dictionary: 'Λεξικό' },
+  ru: { settings: 'Настройки', interfaceLanguage: 'Язык интерфейса', interfaceLanguageCopy: 'Ищите и мгновенно переключайте язык приложения.', searchLanguage: 'Поиск языка', languageSearchPlaceholder: 'Найдите свой язык...', selectedLanguage: 'Выбран', appearance: 'Внешний вид', darkMode: 'Тёмная тема', lightMode: 'Светлая тема', floatingBar: 'Плавающая панель', detectionLanguages: 'Языки распознавания', transcriptionModels: 'Модели транскрипции', systemDiagnostics: 'Диагностика системы', close: 'Закрыть', dictionary: 'Словарь' },
+  'zh-CN': { settings: '设置', interfaceLanguage: '界面语言', interfaceLanguageCopy: '搜索并立即切换应用语言。', searchLanguage: '搜索语言', languageSearchPlaceholder: '搜索你的语言...', selectedLanguage: '已选择', appearance: '外观', darkMode: '深色模式', lightMode: '浅色模式', floatingBar: '悬浮条', detectionLanguages: '检测语言', transcriptionModels: '转录模型', systemDiagnostics: '系统诊断', close: '关闭', dictionary: '词典' },
+  ja: { settings: '設定', interfaceLanguage: 'インターフェース言語', interfaceLanguageCopy: '言語を検索してすぐに切り替えられます。', searchLanguage: '言語を検索', languageSearchPlaceholder: '言語を検索...', selectedLanguage: '選択中', appearance: '表示', darkMode: 'ダークモード', lightMode: 'ライトモード', floatingBar: 'フローティングバー', detectionLanguages: '検出言語', transcriptionModels: '文字起こしモデル', systemDiagnostics: 'システム診断', close: '閉じる', dictionary: '辞書' },
+  ko: { settings: '설정', interfaceLanguage: '인터페이스 언어', interfaceLanguageCopy: '언어를 검색하고 즉시 앱 언어를 바꿀 수 있습니다.', searchLanguage: '언어 검색', languageSearchPlaceholder: '언어 검색...', selectedLanguage: '선택됨', appearance: '화면', darkMode: '다크 모드', lightMode: '라이트 모드', floatingBar: '플로팅 바', detectionLanguages: '감지 언어', transcriptionModels: '전사 모델', systemDiagnostics: '시스템 진단', close: '닫기', dictionary: '사전' },
+  ar: { settings: 'الإعدادات', interfaceLanguage: 'لغة الواجهة', interfaceLanguageCopy: 'ابحث عن لغة التطبيق وبدلها فورًا.', searchLanguage: 'ابحث عن لغة', languageSearchPlaceholder: 'ابحث عن لغتك...', selectedLanguage: 'محدد', appearance: 'المظهر', darkMode: 'الوضع الداكن', lightMode: 'الوضع الفاتح', floatingBar: 'الشريط العائم', detectionLanguages: 'لغات الاكتشاف', transcriptionModels: 'نماذج النسخ', systemDiagnostics: 'تشخيص النظام', close: 'إغلاق', dictionary: 'القاموس' },
+  hi: { settings: 'सेटिंग्स', interfaceLanguage: 'इंटरफ़ेस भाषा', interfaceLanguageCopy: 'अपनी भाषा खोजें और तुरंत ऐप की भाषा बदलें।', searchLanguage: 'भाषा खोजें', languageSearchPlaceholder: 'अपनी भाषा खोजें...', selectedLanguage: 'चयनित', appearance: 'रूप', darkMode: 'डार्क मोड', lightMode: 'लाइट मोड', floatingBar: 'फ़्लोटिंग बार', detectionLanguages: 'पता लगाने की भाषाएँ', transcriptionModels: 'ट्रांसक्रिप्शन मॉडल', systemDiagnostics: 'सिस्टम डायग्नोस्टिक्स', close: 'बंद करें', dictionary: 'शब्दकोश' },
+  tr: { settings: 'Ayarlar', interfaceLanguage: 'Arayüz dili', interfaceLanguageCopy: 'Dil arayın ve uygulama dilini anında değiştirin.', searchLanguage: 'Dil ara', languageSearchPlaceholder: 'Dilini ara...', selectedLanguage: 'Seçili', appearance: 'Görünüm', darkMode: 'Koyu mod', lightMode: 'Açık mod', floatingBar: 'Yüzen çubuk', detectionLanguages: 'Algılama dilleri', transcriptionModels: 'Döküm modelleri', systemDiagnostics: 'Sistem tanıları', close: 'Kapat', dictionary: 'Sözlük' },
 });
 
 const MODEL_LABELS = {
@@ -163,10 +180,12 @@ const els = {
   historySearch: document.getElementById('history-search'),
   shortcutLabel: document.getElementById('shortcut-label'),
   noticeStrip: document.getElementById('notice-strip'),
-  langPt: document.getElementById('lang-pt'),
-  langEn: document.getElementById('lang-en'),
-  langPtLabel: document.getElementById('lang-pt-label'),
-  langEnLabel: document.getElementById('lang-en-label'),
+  detectionLanguageDefaults: document.getElementById('detection-language-defaults'),
+  detectionLanguageSummary: document.getElementById('detection-language-summary'),
+  toggleDetectionLanguages: document.getElementById('toggle-detection-languages'),
+  detectionLanguageMore: document.getElementById('detection-language-more'),
+  detectionLanguageSearch: document.getElementById('detection-language-search'),
+  detectionLanguageList: document.getElementById('detection-language-list'),
   modelList: document.getElementById('model-list'),
   resetStats: document.getElementById('reset-stats'),
   activeModelLabel: document.getElementById('active-model-label'),
@@ -211,6 +230,7 @@ let settingsOpen = false;
 let settingsCloseTimer = null;
 let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
+let detectionLanguagesExpanded = false;
 let editingDictionaryRuleId = null;
 let toastHideTimer = null;
 
@@ -244,10 +264,101 @@ function langName(code, displayLocale = locale()) {
   }
 }
 
-function capitalizeLanguageLabel(value) {
+function capitalizeLanguageLabel(value, displayLocale = locale()) {
   const text = String(value || '').trim();
   if (!text) return text;
-  return text.replace(/^\p{L}/u, (match) => match.toLocaleUpperCase(locale()));
+  return text.replace(/^\p{L}/u, (match) => match.toLocaleUpperCase(displayLocale));
+}
+
+function getSupportedDetectionLanguages() {
+  const fromState = Array.isArray(lastState?.supportedDetectionLanguages)
+    ? lastState.supportedDetectionLanguages
+    : [];
+  const unique = [...new Set(fromState.map((code) => String(code || '').trim().toLowerCase()).filter(Boolean))];
+
+  for (const code of DEFAULT_DETECTION_LANGUAGES) {
+    if (!unique.includes(code)) {
+      unique.push(code);
+    }
+  }
+
+  return unique;
+}
+
+function getSelectedDetectionLanguages() {
+  const fromState = Array.isArray(lastState?.allowedLanguages) ? lastState.allowedLanguages : [];
+  const list = [...new Set(fromState.map((code) => String(code || '').trim().toLowerCase()).filter(Boolean))];
+  return list.length > 0 ? list : [...DEFAULT_DETECTION_LANGUAGES];
+}
+
+function getDictionaryFallbackLanguages() {
+  const selected = getSelectedDetectionLanguages().filter((code) => DICTIONARY_LANGUAGE_CODES.includes(code));
+  return selected.length > 0 ? selected : ['pt'];
+}
+
+function detectionLanguageSummary(selectedLanguages) {
+  const list = Array.isArray(selectedLanguages) ? selectedLanguages : [];
+
+  if (list.length <= 3) {
+    return list.map((code) => capitalizeLanguageLabel(langName(code))).join(', ');
+  }
+
+  return locale() === 'pt-BR' ? `${intFmt(list.length)} selecionados` : `${intFmt(list.length)} selected`;
+}
+
+function buildDetectionLanguageOption(code, selected, compact = false) {
+  const nativeName = capitalizeLanguageLabel(langName(code, code), code);
+  const localName = capitalizeLanguageLabel(langName(code));
+  const showLocalName = localName && localName !== nativeName;
+
+  return `
+    <label class="detection-language-card${selected ? ' detection-language-card--active' : ''}${compact ? ' detection-language-card--compact' : ''}">
+      <input data-detection-language="${esc(code)}" type="checkbox" value="${esc(code)}" ${selected ? 'checked' : ''} />
+      <div class="detection-language-card__copy">
+        <strong>${esc(nativeName)}</strong>
+        <span>${esc(showLocalName ? localName : code.toUpperCase())}</span>
+      </div>
+      <span class="detection-language-card__meta">${esc(code.toUpperCase())}</span>
+    </label>
+  `;
+}
+
+function renderDetectionLanguages() {
+  const supported = getSupportedDetectionLanguages();
+  const selected = new Set(getSelectedDetectionLanguages());
+  const defaultLanguages = DEFAULT_DETECTION_LANGUAGES.filter((code) => supported.includes(code));
+  const extraLanguages = supported
+    .filter((code) => !defaultLanguages.includes(code))
+    .map((code) => ({
+      code,
+      label: capitalizeLanguageLabel(langName(code)),
+      nativeName: capitalizeLanguageLabel(langName(code, code), code),
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, locale()));
+  const query = String(els.detectionLanguageSearch.value || '').trim().toLocaleLowerCase(locale());
+  const filteredExtras = extraLanguages.filter((item) => {
+    const searchText = `${item.code} ${item.label} ${item.nativeName}`.toLocaleLowerCase(locale());
+    return selected.has(item.code) || !query || searchText.includes(query);
+  });
+
+  els.detectionLanguageDefaults.innerHTML = defaultLanguages
+    .map((code) => buildDetectionLanguageOption(code, selected.has(code), true))
+    .join('');
+  els.detectionLanguageSummary.textContent = detectionLanguageSummary([...selected]);
+  els.toggleDetectionLanguages.textContent = detectionLanguagesExpanded
+    ? t('showLessLanguages')
+    : `${t('showMoreLanguages')} (${intFmt(extraLanguages.length)})`;
+  els.toggleDetectionLanguages.classList.toggle('hidden', extraLanguages.length === 0);
+  els.detectionLanguageMore.classList.toggle('hidden', !detectionLanguagesExpanded);
+
+  if (filteredExtras.length === 0) {
+    els.detectionLanguageList.innerHTML = `<div class="history-empty">${esc(t('noDetectionLanguageResults'))}</div>`;
+    return;
+  }
+
+  els.detectionLanguageList.innerHTML = filteredExtras
+    .map((item) => buildDetectionLanguageOption(item.code, selected.has(item.code)))
+    .join('');
 }
 
 function esc(value) {
@@ -320,8 +431,6 @@ function applyTranslations() {
     element.setAttribute('placeholder', t(element.dataset.i18nPlaceholder));
   }
 
-  els.langPtLabel.textContent = capitalizeLanguageLabel(langName('pt'));
-  els.langEnLabel.textContent = capitalizeLanguageLabel(langName('en'));
   els.dictionaryLangPtLabel.textContent = capitalizeLanguageLabel(langName('pt'));
   els.dictionaryLangEnLabel.textContent = capitalizeLanguageLabel(langName('en'));
   els.submitDictionaryRule.textContent = editingDictionaryRuleId ? t('saveRule') : t('addRule');
@@ -532,6 +641,7 @@ function renderState(state) {
   lastState = state;
   applyTranslations();
   renderInterfaceLanguages();
+  renderDetectionLanguages();
   hideToast();
 
   els.shortcutLabel.textContent = formatShortcut(state.shortcut) || '--';
@@ -540,8 +650,6 @@ function renderState(state) {
   els.deviceNote.textContent = state.deviceNote || t('noNotes');
   els.showOverlayBar.checked = Boolean(state.showOverlayBar);
   els.soundEffectsEnabled.checked = Boolean(state.soundEffectsEnabled);
-  els.langPt.checked = (state.allowedLanguages || []).includes('pt');
-  els.langEn.checked = (state.allowedLanguages || []).includes('en');
 
   renderUsageSummary(state.usageSummary || {});
   renderHistory(state.history, state.historyTotal);
@@ -587,7 +695,7 @@ function setDictionaryOpen(open) {
   document.body.classList.toggle('dictionary-open', dictionaryOpen);
 
   if (dictionaryOpen) {
-    resetDictionaryForm(lastState?.allowedLanguages || ['pt']);
+    resetDictionaryForm(getDictionaryFallbackLanguages());
     els.dictionaryWindow.classList.remove('hidden');
     els.dictionaryBackdrop.classList.remove('hidden');
     window.requestAnimationFrame(() => {
@@ -632,9 +740,10 @@ function resetDictionaryForm(fallbackLanguages) {
   applyTranslations();
 }
 
-function selectedDetectionLanguages() {
-  const list = [els.langPt.checked ? 'pt' : null, els.langEn.checked ? 'en' : null].filter(Boolean);
-  return list.length > 0 ? list : ['pt'];
+function selectedDetectionLanguagesFromDom() {
+  return [...document.querySelectorAll('[data-detection-language]')]
+    .filter((input) => input.checked)
+    .map((input) => input.value);
 }
 
 function selectedDictionaryLanguages(fallbackLanguages) {
@@ -643,11 +752,35 @@ function selectedDictionaryLanguages(fallbackLanguages) {
 }
 
 function setupHandlers() {
-  for (const checkbox of [els.langPt, els.langEn]) {
-    checkbox.addEventListener('change', async () => {
-      renderState(await window.flowLocal.updateSettings({ allowedLanguages: selectedDetectionLanguages() }));
-    });
-  }
+  const updateDetectionLanguages = async (event) => {
+    const input = event.target;
+    if (!input || !input.matches('[data-detection-language]')) {
+      return;
+    }
+
+    const selected = selectedDetectionLanguagesFromDom();
+    if (selected.length === 0) {
+      input.checked = true;
+      showToast(t('keepOneDetectionLanguage'));
+      return;
+    }
+
+    renderState(await window.flowLocal.updateSettings({ allowedLanguages: selected }));
+  };
+
+  els.detectionLanguageDefaults.addEventListener('change', updateDetectionLanguages);
+  els.detectionLanguageList.addEventListener('change', updateDetectionLanguages);
+  els.toggleDetectionLanguages.addEventListener('click', () => {
+    detectionLanguagesExpanded = !detectionLanguagesExpanded;
+    if (!detectionLanguagesExpanded) {
+      els.detectionLanguageSearch.value = '';
+    }
+    renderDetectionLanguages();
+    if (detectionLanguagesExpanded) {
+      els.detectionLanguageSearch.focus();
+    }
+  });
+  els.detectionLanguageSearch.addEventListener('input', renderDetectionLanguages);
 
   els.interfaceLanguageSearch.addEventListener('input', renderInterfaceLanguages);
   els.interfaceLanguageList.addEventListener('click', async (event) => {
@@ -698,7 +831,7 @@ function setupHandlers() {
     event.preventDefault();
     const sources = parseDictionarySources(els.dictionarySources.value);
     const target = (els.dictionaryTarget.value || '').trim();
-    const fallbackLanguages = lastState?.allowedLanguages?.length ? lastState.allowedLanguages : ['pt'];
+    const fallbackLanguages = getDictionaryFallbackLanguages();
     const languages = selectedDictionaryLanguages(fallbackLanguages);
 
     if (!sources.length || !target) {
@@ -739,12 +872,12 @@ function setupHandlers() {
       dictionaryEntries: (lastState?.dictionaryEntries || []).filter((entry) => entry.id !== entryId),
     }));
     if (editingDictionaryRuleId === entryId) {
-      resetDictionaryForm(lastState?.allowedLanguages || ['pt']);
+      resetDictionaryForm(getDictionaryFallbackLanguages());
     }
   });
 
   els.cancelDictionaryEdit.addEventListener('click', () => {
-    resetDictionaryForm(lastState?.allowedLanguages || ['pt']);
+    resetDictionaryForm(getDictionaryFallbackLanguages());
   });
 
   window.addEventListener('keydown', (event) => {
