@@ -11,6 +11,7 @@ const DEFAULT_LANGUAGES = ['pt', 'en'];
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const PERSISTENCE_VERSION = 2;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
+const AUDIO_MUTE_SCRIPT_TIMEOUT_MS = 3000;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
@@ -55,6 +56,11 @@ let hotkeyReader = null;
 let serviceToken = 0;
 let hotkeyToken = 0;
 let serviceRestartVersion = 0;
+const captureMuteState = {
+  requested: false,
+  restoreMuted: null,
+  sequence: 0,
+};
 
 function getDefaultModel() {
   return process.env.WHISPER_MODEL || 'medium';
@@ -684,6 +690,129 @@ function insertTextIntoFocusedApp(text) {
   });
 }
 
+function getSystemAudioMuteScriptPath() {
+  return path.join(getProjectRoot(), 'scripts', 'system_audio_mute.ps1');
+}
+
+function runSystemAudioMuteScript(action) {
+  return new Promise((resolve, reject) => {
+    if (process.platform !== 'win32') {
+      resolve(null);
+      return;
+    }
+
+    const scriptPath = getSystemAudioMuteScriptPath();
+    const powershell = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-Action', action],
+      { windowsHide: true },
+    );
+
+    let stdout = '';
+    let stderr = '';
+    let finished = false;
+
+    const finish = (callback) => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      clearTimeout(timeout);
+      callback();
+    };
+
+    const timeout = setTimeout(() => {
+      try {
+        powershell.kill();
+      } catch (_error) {
+        // Best effort.
+      }
+
+      finish(() => reject(new Error('Tempo limite ao consultar o mute do sistema.')));
+    }, AUDIO_MUTE_SCRIPT_TIMEOUT_MS);
+
+    powershell.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    powershell.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    powershell.on('error', (error) => {
+      finish(() => reject(error));
+    });
+
+    powershell.on('close', (code) => {
+      const trimmedOutput = stdout.trim().toLowerCase();
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `Falha ao executar o mute do sistema (codigo ${code}).`));
+          return;
+        }
+
+        resolve(trimmedOutput === 'true');
+      });
+    });
+  });
+}
+
+async function engageCaptureMute() {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const token = ++captureMuteState.sequence;
+  captureMuteState.requested = true;
+
+  if (captureMuteState.restoreMuted !== null) {
+    return;
+  }
+
+  try {
+    const wasMuted = Boolean(await runSystemAudioMuteScript('get'));
+    if (token !== captureMuteState.sequence || !captureMuteState.requested) {
+      return;
+    }
+
+    captureMuteState.restoreMuted = wasMuted;
+    if (!wasMuted) {
+      await runSystemAudioMuteScript('mute');
+    }
+
+    if (token !== captureMuteState.sequence || !captureMuteState.requested) {
+      captureMuteState.restoreMuted = null;
+      if (!wasMuted) {
+        await runSystemAudioMuteScript('unmute');
+      }
+    }
+  } catch (error) {
+    console.warn('[audio-mute] Nao foi possivel mutar o sistema durante a captura:', error.message);
+  }
+}
+
+async function releaseCaptureMute() {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  ++captureMuteState.sequence;
+  captureMuteState.requested = false;
+
+  const restoreMuted = captureMuteState.restoreMuted;
+  captureMuteState.restoreMuted = null;
+
+  if (restoreMuted === null || restoreMuted) {
+    return;
+  }
+
+  try {
+    await runSystemAudioMuteScript('unmute');
+  } catch (error) {
+    console.warn('[audio-mute] Nao foi possivel restaurar o audio do sistema:', error.message);
+  }
+}
+
 function getLatestSavedTranscriptionText() {
   const latestHistoryEntry = state.history[0];
   if (latestHistoryEntry && typeof latestHistoryEntry.text === 'string' && latestHistoryEntry.text.trim()) {
@@ -752,12 +881,14 @@ function startListening(mode = 'hold') {
     notice: captureMode === 'hands-free' ? HANDS_FREE_ACTIVE_NOTICE : clearHandsFreeNotice(),
     error: '',
   });
+  void engageCaptureMute();
   sendServiceCommand('start', { session_id: sessionId });
   return snapshotState();
 }
 
 function stopListening() {
   const nextNotice = clearHandsFreeNotice();
+  void releaseCaptureMute();
 
   if (!state.listening && !state.pendingStartMode && state.dictationSessionId === null) {
     setOverlayAudioLevel(0);
@@ -819,6 +950,7 @@ function cancelDictation(source = 'escape') {
     error: '',
   });
   setOverlayAudioLevel(0);
+  void releaseCaptureMute();
 
   if (state.serviceOnline && state.engineReady && sessionId !== null) {
     sendServiceCommand('cancel', { session_id: sessionId });
@@ -996,6 +1128,7 @@ async function handleServiceEvent(event) {
       classifyWarning(payload.message || 'Aviso do motor de ditado.');
       break;
     case 'error':
+      void releaseCaptureMute();
       setState({
         notice: '',
         error: payload.message || 'Erro no motor de ditado.',
@@ -1166,6 +1299,7 @@ function bootDictationService() {
     }
 
     setOverlayAudioLevel(0);
+    void releaseCaptureMute();
     setState({
       serviceOnline: false,
       engineReady: false,
@@ -1184,6 +1318,7 @@ function bootDictationService() {
 
     serviceProcess = null;
     setOverlayAudioLevel(0);
+    void releaseCaptureMute();
     setState({
       serviceOnline: false,
       engineReady: false,
@@ -1314,6 +1449,7 @@ async function shutdownServiceForRestart() {
 
 async function restartDictationService() {
   const restartVersion = ++serviceRestartVersion;
+  void releaseCaptureMute();
   setState({
     engineReady: false,
     serviceOnline: false,
@@ -1394,6 +1530,8 @@ ipcMain.handle('copy-text', async (_event, text) => {
 });
 
 function shutdownChildren() {
+  void releaseCaptureMute();
+
   try {
     sendServiceCommand('shutdown');
   } catch (_error) {
