@@ -56,6 +56,9 @@ let renderedHistory = [];
 let historyFilter = '';
 let lastState = null;
 let settingsOpen = false;
+let settingsCloseTimer = null;
+
+const SETTINGS_CLOSE_DELAY_MS = 170;
 
 function escapeHtml(value) {
   return String(value || '')
@@ -113,6 +116,14 @@ function formatModel(modelId) {
   return modelLabelMap[modelId] || modelId || '--';
 }
 
+function getPhaseLabel(state) {
+  if (state.phase === 'listening' && state.captureMode === 'hands-free') {
+    return 'Hands-Free';
+  }
+
+  return phaseMap[state.phase] || state.phase || 'Pronto';
+}
+
 function formatDaysLabel(value) {
   const amount = Number(value) || 0;
   return `${integerNumber.format(amount)} ${amount === 1 ? 'dia' : 'dias'}`;
@@ -145,7 +156,7 @@ function getFilteredHistory(history) {
   });
 }
 
-function renderHistory(history, historyLimit) {
+function renderHistory(history, historyTotal) {
   const sourceHistory = Array.isArray(history) ? history : [];
   renderedHistory = getFilteredHistory(sourceHistory);
 
@@ -163,7 +174,7 @@ function renderHistory(history, historyLimit) {
 
   els.historyCount.textContent = historyFilter.trim()
     ? `${integerNumber.format(renderedHistory.length)} resultados`
-    : `${integerNumber.format(renderedHistory.length)} de ${integerNumber.format(historyLimit || renderedHistory.length)} mensagens`;
+    : `${integerNumber.format(historyTotal || renderedHistory.length)} mensagens`;
   els.historyList.innerHTML = renderedHistory
     .map((entry, index) => {
       const timestamp = new Date(entry.timestamp);
@@ -249,7 +260,7 @@ function renderModels(state) {
 
 function renderState(state) {
   lastState = state;
-  const label = phaseMap[state.phase] || state.phase || 'Pronto';
+  const label = getPhaseLabel(state);
   const device = state.device ? String(state.device).toUpperCase() : '--';
 
   els.phaseLabel.textContent = label;
@@ -269,7 +280,7 @@ function renderState(state) {
   renderLanguages(state.allowedLanguages);
   renderPreferences(state);
   renderModels(state);
-  renderHistory(state.history, state.historyLimit);
+  renderHistory(state.history, state.historyTotal);
 
   if (state.error) {
     els.noticeStrip.textContent = state.error;
@@ -287,11 +298,34 @@ function renderState(state) {
 }
 
 function setSettingsOpen(open) {
+  if (settingsCloseTimer) {
+    window.clearTimeout(settingsCloseTimer);
+    settingsCloseTimer = null;
+  }
+
   settingsOpen = Boolean(open);
   document.body.classList.toggle('settings-open', settingsOpen);
-  els.settingsDrawer.classList.toggle('hidden', !settingsOpen);
-  els.settingsBackdrop.classList.toggle('hidden', !settingsOpen);
-  els.settingsDrawer.setAttribute('aria-hidden', settingsOpen ? 'false' : 'true');
+
+  if (settingsOpen) {
+    els.settingsDrawer.classList.remove('hidden');
+    els.settingsBackdrop.classList.remove('hidden');
+
+    window.requestAnimationFrame(() => {
+      els.settingsDrawer.classList.add('is-visible');
+      els.settingsBackdrop.classList.add('is-visible');
+      els.settingsDrawer.setAttribute('aria-hidden', 'false');
+    });
+    return;
+  }
+
+  els.settingsDrawer.classList.remove('is-visible');
+  els.settingsBackdrop.classList.remove('is-visible');
+  els.settingsDrawer.setAttribute('aria-hidden', 'true');
+  settingsCloseTimer = window.setTimeout(() => {
+    els.settingsDrawer.classList.add('hidden');
+    els.settingsBackdrop.classList.add('hidden');
+    settingsCloseTimer = null;
+  }, SETTINGS_CLOSE_DELAY_MS);
 }
 
 async function updateLanguages(nextLanguages) {
@@ -335,7 +369,7 @@ function setupHandlers() {
   els.historySearch.addEventListener('input', () => {
     historyFilter = els.historySearch.value || '';
     if (lastState) {
-      renderHistory(lastState.history, lastState.historyLimit);
+      renderHistory(lastState.history, lastState.historyTotal);
     }
   });
 

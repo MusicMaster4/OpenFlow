@@ -9,13 +9,15 @@ const readline = require('readline');
 const DEFAULT_SHORTCUT = 'ctrl+shift+space';
 const DEFAULT_LANGUAGES = ['pt', 'en'];
 const DEFAULT_SHOW_OVERLAY_BAR = true;
-const MAX_HISTORY = 100;
+const PERSISTENCE_VERSION = 2;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
-const OVERLAY_WIDTH = 248;
-const OVERLAY_HEIGHT = 58;
+const OVERLAY_WIDTH = 96;
+const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
 const APP_NAME = 'MegaFala';
 const APP_ID = 'com.megafala.app';
+const HANDS_FREE_ACTIVE_NOTICE =
+  'Modo hands-free ativo. Pressione Ctrl + Shift + Space para finalizar e transcrever.';
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -183,8 +185,7 @@ function normalizeHistory(history) {
         timestamp: timestamp || new Date().toISOString(),
       };
     })
-    .filter(Boolean)
-    .slice(0, MAX_HISTORY);
+    .filter(Boolean);
 }
 
 function normalizeUsageStats(stats) {
@@ -283,7 +284,9 @@ const state = {
   serviceOnline: false,
   hotkeyOnline: false,
   hotkeyPressed: false,
-  pendingStartOnReady: false,
+  pendingStartMode: null,
+  captureMode: null,
+  dictationSessionId: null,
   switchingModel: false,
   notice: '',
   error: '',
@@ -310,51 +313,99 @@ function getAppIconPath() {
 }
 
 function getSettingsPath() {
+  return path.join(getStorageDirectory(), 'settings.json');
+}
+
+function getLegacySettingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
 
-function loadUserSettings() {
-  try {
-    const raw = fs.readFileSync(getSettingsPath(), 'utf8');
-    const parsed = JSON.parse(raw);
-    return {
-      allowedLanguages: normalizeLanguages(parsed.allowedLanguages),
-      model: normalizeModel(parsed.model),
-      modelStats: normalizeStats(parsed.modelStats),
-      history: normalizeHistory(parsed.history),
-      usageStats: normalizeUsageStats(parsed.usageStats),
-      showOverlayBar:
-        typeof parsed.showOverlayBar === 'boolean'
-          ? parsed.showOverlayBar
-          : defaults.showOverlayBar,
-      overlayPosition: normalizeOverlayPosition(parsed.overlayPosition),
-    };
-  } catch (_error) {
-    return {
+function getStorageDirectory() {
+  return path.join(app.getPath('userData'), 'store');
+}
+
+function createEmptyPersistedState() {
+  return {
+    version: PERSISTENCE_VERSION,
+    preferences: {
       allowedLanguages: defaults.allowedLanguages,
       model: defaults.model,
-      modelStats: createEmptyStats(),
-      history: [],
-      usageStats: createEmptyUsageStats(),
       showOverlayBar: defaults.showOverlayBar,
       overlayPosition: defaults.overlayPosition,
-    };
+    },
+    modelStats: createEmptyStats(),
+    history: [],
+    usageStats: createEmptyUsageStats(),
+  };
+}
+
+function readJsonFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (_error) {
+    return null;
   }
 }
 
-function saveUserSettings() {
+function normalizePersistedState(payload) {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const preferencesSource =
+    source.preferences && typeof source.preferences === 'object' ? source.preferences : source;
+
+  return {
+    version: PERSISTENCE_VERSION,
+    preferences: {
+      allowedLanguages: normalizeLanguages(preferencesSource.allowedLanguages),
+      model: normalizeModel(preferencesSource.model),
+      showOverlayBar:
+        typeof preferencesSource.showOverlayBar === 'boolean'
+          ? preferencesSource.showOverlayBar
+          : defaults.showOverlayBar,
+      overlayPosition: normalizeOverlayPosition(preferencesSource.overlayPosition),
+    },
+    modelStats: normalizeStats(source.modelStats),
+    history: normalizeHistory(source.history),
+    usageStats: normalizeUsageStats(source.usageStats),
+  };
+}
+
+function writeJsonFile(filePath, payload) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+}
+
+function loadPersistentState() {
+  const persisted = readJsonFile(getSettingsPath());
+  if (persisted) {
+    return normalizePersistedState(persisted);
+  }
+
+  const legacy = readJsonFile(getLegacySettingsPath());
+  if (legacy) {
+    const migrated = normalizePersistedState(legacy);
+    writeJsonFile(getSettingsPath(), migrated);
+    return migrated;
+  }
+
+  return createEmptyPersistedState();
+}
+
+function savePersistentState() {
   const payload = {
-    allowedLanguages: state.allowedLanguages,
-    model: state.model,
+    version: PERSISTENCE_VERSION,
+    preferences: {
+      allowedLanguages: state.allowedLanguages,
+      model: state.model,
+      showOverlayBar: state.showOverlayBar,
+      overlayPosition: state.overlayPosition,
+    },
     modelStats: state.modelStats,
     history: state.history,
     usageStats: state.usageStats,
-    showOverlayBar: state.showOverlayBar,
-    overlayPosition: state.overlayPosition,
   };
 
-  fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
-  fs.writeFileSync(getSettingsPath(), JSON.stringify(payload, null, 2));
+  writeJsonFile(getSettingsPath(), payload);
 }
 
 function createWindow() {
@@ -424,7 +475,7 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
         y: bounds.y,
       },
     });
-    saveUserSettings();
+    savePersistentState();
   }
 
   return bounds;
@@ -488,7 +539,7 @@ function createOverlayWindow() {
 function snapshotState() {
   return {
     ...state,
-    historyLimit: MAX_HISTORY,
+    historyTotal: state.history.length,
     usageSummary: buildUsageSummary(state.usageStats),
   };
 }
@@ -544,6 +595,31 @@ function normalizeTextForPaste(text) {
   return /[.,!?;:\n]$/.test(trimmed) ? trimmed : `${trimmed} `;
 }
 
+function getNextDictationSessionId() {
+  return Number(state.dictationSessionId || 0) + 1;
+}
+
+function normalizeCaptureMode(mode) {
+  return mode === 'hands-free' ? 'hands-free' : 'hold';
+}
+
+function isHandsFreeNotice(notice) {
+  return String(notice || '').toLowerCase().includes('hands-free');
+}
+
+function clearHandsFreeNotice(notice = state.notice) {
+  return isHandsFreeNotice(notice) ? '' : notice;
+}
+
+function extractSessionId(payload) {
+  const value = Number(payload?.session_id);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function isCurrentDictationSession(sessionId) {
+  return sessionId === null || sessionId === state.dictationSessionId;
+}
+
 function insertTextIntoFocusedApp(text) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(getProjectRoot(), 'scripts', 'send_text.ps1');
@@ -575,13 +651,21 @@ function insertTextIntoFocusedApp(text) {
   });
 }
 
-function startListening() {
+function startListening(mode = 'hold') {
+  const captureMode = normalizeCaptureMode(mode);
+
   if (!state.engineReady || !state.serviceOnline) {
+    const waitingNotice = state.switchingModel
+      ? captureMode === 'hands-free'
+        ? `Trocando para ${getModelDisplayName(state.model)}. O modo hands-free sera ativado quando o novo worker ficar pronto.`
+        : `Trocando para ${getModelDisplayName(state.model)}. Aguarde o novo worker ficar pronto.`
+      : captureMode === 'hands-free'
+        ? 'O modelo ainda esta carregando. O modo hands-free sera iniciado quando estiver pronto.'
+        : 'O modelo ainda esta carregando. Aguarde alguns segundos.';
+
     setState({
-      pendingStartOnReady: state.hotkeyPressed,
-      notice: state.switchingModel
-        ? `Trocando para ${getModelDisplayName(state.model)}. Aguarde o novo worker ficar pronto.`
-        : 'O modelo ainda esta carregando. Aguarde alguns segundos.',
+      pendingStartMode: captureMode,
+      notice: waitingNotice,
       error: '',
     });
     return snapshotState();
@@ -591,16 +675,82 @@ function startListening() {
     return snapshotState();
   }
 
-  sendServiceCommand('start');
+  const sessionId = getNextDictationSessionId();
+  setState({
+    captureMode,
+    dictationSessionId: sessionId,
+    pendingStartMode: null,
+    notice: captureMode === 'hands-free' ? HANDS_FREE_ACTIVE_NOTICE : clearHandsFreeNotice(),
+    error: '',
+  });
+  sendServiceCommand('start', { session_id: sessionId });
   return snapshotState();
 }
 
 function stopListening() {
-  if (!state.serviceOnline || !state.engineReady) {
+  const nextNotice = clearHandsFreeNotice();
+
+  if (!state.listening && !state.pendingStartMode) {
+    setState({
+      captureMode: null,
+      notice: nextNotice,
+    });
     return snapshotState();
   }
 
-  sendServiceCommand('stop');
+  if (!state.serviceOnline || !state.engineReady) {
+    setState({
+      pendingStartMode: null,
+      captureMode: null,
+      notice: nextNotice,
+    });
+    return snapshotState();
+  }
+
+  setState({
+    pendingStartMode: null,
+    captureMode: null,
+    notice: nextNotice,
+  });
+  if (state.dictationSessionId !== null) {
+    sendServiceCommand('stop', { session_id: state.dictationSessionId });
+  }
+  return snapshotState();
+}
+
+function cancelDictation(source = 'escape') {
+  const hadActiveDictation =
+    state.listening ||
+    state.pendingStartMode !== null ||
+    state.pendingPaste ||
+    state.phase === 'transcribing' ||
+    state.dictationSessionId !== null;
+
+  if (!hadActiveDictation) {
+    return snapshotState();
+  }
+
+  const nextNotice =
+    source === 'escape' ? 'Ditado cancelado por Esc.' : 'Ditado cancelado.';
+  const sessionId = state.dictationSessionId;
+
+  setState({
+    hotkeyPressed: false,
+    listening: false,
+    pendingStartMode: null,
+    captureMode: null,
+    dictationSessionId: null,
+    pendingPaste: false,
+    partial: '',
+    phase: 'idle',
+    notice: nextNotice,
+    error: '',
+  });
+
+  if (state.serviceOnline && state.engineReady && sessionId !== null) {
+    sendServiceCommand('cancel', { session_id: sessionId });
+  }
+
   return snapshotState();
 }
 
@@ -630,7 +780,7 @@ function recordModelTiming(modelId, transcriptionMs) {
       [normalizedModel]: updated,
     },
   });
-  saveUserSettings();
+  savePersistentState();
 }
 
 function classifyWarning(message) {
@@ -654,9 +804,12 @@ function classifyWarning(message) {
 
 async function handleServiceEvent(event) {
   const payload = event.payload || {};
+  const sessionId = extractSessionId(payload);
 
   switch (event.type) {
     case 'ready':
+      {
+        const pendingStartMode = state.pendingStartMode;
       setState({
         engineReady: true,
         phase: 'idle',
@@ -666,29 +819,48 @@ async function handleServiceEvent(event) {
         deviceNote: payload.note || state.deviceNote,
         switchingModel: false,
         pendingPaste: false,
-        notice: state.notice.startsWith('Trocando para ') ? '' : state.notice,
+        notice:
+          state.notice.startsWith('Trocando para ') && pendingStartMode !== 'hands-free'
+            ? ''
+            : state.notice,
         error: '',
       });
-      if (state.pendingStartOnReady && state.hotkeyPressed) {
-        setState({ pendingStartOnReady: false });
-        startListening();
+      if (pendingStartMode === 'hands-free' || (pendingStartMode === 'hold' && state.hotkeyPressed)) {
+        startListening(pendingStartMode);
       }
       break;
+      }
     case 'state':
+      if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
       setState({
         listening: Boolean(payload.listening),
+        dictationSessionId: payload.listening ? sessionId || state.dictationSessionId : state.dictationSessionId,
         phase:
           state.pendingPaste && (payload.phase === 'idle' || payload.phase === 'transcribing')
             ? 'transcribing'
             : payload.phase || state.phase,
       });
+
+      if (!payload.listening && payload.phase === 'idle' && sessionId !== null) {
+        setState({
+          dictationSessionId: null,
+        });
+      }
       break;
     case 'partial':
+      if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
       setState({
         partial: payload.text || '',
       });
       break;
     case 'final': {
+      if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
       const text = String(payload.text || '').trim();
       if (!text) {
         break;
@@ -704,7 +876,7 @@ async function handleServiceEvent(event) {
         wordCount: countWords(text),
         timestamp: new Date().toISOString(),
       };
-      const history = [entry, ...state.history].slice(0, MAX_HISTORY);
+      const history = [entry, ...state.history];
       const usageStats = recordUsage(state.usageStats, entry);
 
       setState({
@@ -713,11 +885,12 @@ async function handleServiceEvent(event) {
         partial: '',
         history,
         usageStats,
+        dictationSessionId: sessionId,
         pendingPaste: true,
         phase: 'transcribing',
         error: '',
       });
-      saveUserSettings();
+      savePersistentState();
 
       recordModelTiming(payload.model || state.model, payload.transcription_ms);
 
@@ -729,6 +902,7 @@ async function handleServiceEvent(event) {
         });
       } finally {
         setState({
+          dictationSessionId: state.listening ? state.dictationSessionId : null,
           pendingPaste: false,
           phase: state.listening ? 'listening' : 'idle',
         });
@@ -743,6 +917,9 @@ async function handleServiceEvent(event) {
         notice: '',
         error: payload.message || 'Erro no motor de ditado.',
         pendingPaste: false,
+        pendingStartMode: null,
+        captureMode: null,
+        dictationSessionId: null,
         phase: 'error',
       });
       break;
@@ -753,6 +930,7 @@ async function handleServiceEvent(event) {
 
 function handleHotkeyEvent(event) {
   const payload = event.payload || {};
+  const hotkeyMode = normalizeCaptureMode(payload.mode);
 
   switch (event.type) {
     case 'ready':
@@ -765,14 +943,31 @@ function handleHotkeyEvent(event) {
       setState({
         hotkeyPressed: true,
       });
-      startListening();
+      if (state.captureMode === 'hands-free' && state.listening) {
+        stopListening();
+        break;
+      }
+
+      startListening(hotkeyMode);
       break;
     case 'hotkey-released':
       setState({
         hotkeyPressed: false,
-        pendingStartOnReady: false,
       });
+      if (state.captureMode === 'hands-free' || state.pendingStartMode === 'hands-free') {
+        break;
+      }
+
+      if (state.pendingStartMode === 'hold') {
+        setState({
+          pendingStartMode: null,
+          notice: clearHandsFreeNotice(),
+        });
+      }
       stopListening();
+      break;
+    case 'cancel-requested':
+      cancelDictation(payload.source || 'escape');
       break;
     case 'warning':
       classifyWarning(payload.message || state.notice);
@@ -824,6 +1019,8 @@ function bootDictationService() {
     serviceOnline: true,
     engineReady: false,
     listening: false,
+    captureMode: null,
+    dictationSessionId: null,
     pendingPaste: false,
     partial: '',
     notice: state.switchingModel ? state.notice : '',
@@ -880,6 +1077,9 @@ function bootDictationService() {
       serviceOnline: false,
       engineReady: false,
       phase: 'error',
+      pendingStartMode: null,
+      captureMode: null,
+      dictationSessionId: null,
       error: `Nao foi possivel iniciar o worker Python: ${error.message}`,
     });
   });
@@ -894,6 +1094,9 @@ function bootDictationService() {
       serviceOnline: false,
       engineReady: false,
       listening: false,
+      pendingStartMode: null,
+      captureMode: null,
+      dictationSessionId: null,
       phase: 'offline',
       partial: '',
       error: code === 0 ? state.error : `Worker Python encerrado com codigo ${code}.`,
@@ -1022,7 +1225,9 @@ async function restartDictationService() {
     serviceOnline: false,
     listening: false,
     hotkeyPressed: false,
-    pendingStartOnReady: false,
+    pendingStartMode: null,
+    captureMode: null,
+    dictationSessionId: null,
     pendingPaste: false,
     partial: '',
     phase: 'booting',
@@ -1067,7 +1272,7 @@ async function applySettings(patch) {
     error: '',
   });
 
-  saveUserSettings();
+  savePersistentState();
 
   if (modelChanged) {
     await restartDictationService();
@@ -1085,7 +1290,7 @@ function resetModelStats() {
     modelStats: createEmptyStats(),
     notice: 'Estatisticas de modelos resetadas.',
   });
-  saveUserSettings();
+  savePersistentState();
   return snapshotState();
 }
 
@@ -1121,15 +1326,15 @@ ipcMain.on('overlay-drag-end', (_event, position) => {
 app.whenReady().then(() => {
   app.setAppUserModelId(APP_ID);
 
-  const userSettings = loadUserSettings();
+  const persistedState = loadPersistentState();
   setState({
-    allowedLanguages: userSettings.allowedLanguages,
-    model: userSettings.model,
-    modelStats: userSettings.modelStats,
-    history: userSettings.history,
-    usageStats: userSettings.usageStats,
-    showOverlayBar: userSettings.showOverlayBar,
-    overlayPosition: userSettings.overlayPosition,
+    allowedLanguages: persistedState.preferences.allowedLanguages,
+    model: persistedState.preferences.model,
+    modelStats: persistedState.modelStats,
+    history: persistedState.history,
+    usageStats: persistedState.usageStats,
+    showOverlayBar: persistedState.preferences.showOverlayBar,
+    overlayPosition: persistedState.preferences.overlayPosition,
   });
 
   createWindow();

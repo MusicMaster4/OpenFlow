@@ -451,6 +451,12 @@ input {
   background: rgba(25, 20, 15, 0.34);
   backdrop-filter: blur(4px);
   z-index: 40;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    visibility 0s linear 140ms;
 }
 
 .settings-drawer {
@@ -468,6 +474,29 @@ input {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
   overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(18px);
+  transition:
+    opacity 140ms ease,
+    transform 160ms ease,
+    visibility 0s linear 160ms;
+}
+
+.settings-backdrop.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.settings-drawer.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
 }
 
 .settings-drawer__header {
@@ -648,6 +677,13 @@ input {
 
 .hidden {
   display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-backdrop,
+  .settings-drawer {
+    transition: none;
+  }
 }
 
 @media (max-width: 1160px) {

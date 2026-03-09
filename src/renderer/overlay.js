@@ -1,6 +1,7 @@
 const overlayEls = {
   shell: document.getElementById('overlay-shell'),
   pill: document.getElementById('overlay-pill'),
+  badge: document.getElementById('overlay-badge'),
   wave: document.getElementById('overlay-wave'),
   loader: document.getElementById('overlay-loader'),
   glyph: document.getElementById('overlay-glyph'),
@@ -23,6 +24,10 @@ function getOverlayMode(state) {
     default:
       return 'idle';
   }
+}
+
+function isHandsFreeActive(state) {
+  return state.phase === 'listening' && state.captureMode === 'hands-free';
 }
 
 function flushDrag() {
@@ -103,10 +108,14 @@ function handlePointerMove(event) {
 
 function renderOverlay(state) {
   const mode = getOverlayMode(state);
+  const handsFree = isHandsFreeActive(state);
   overlayEls.shell.dataset.mode = mode;
+  overlayEls.shell.dataset.handsFree = handsFree ? 'true' : 'false';
   overlayEls.wave.classList.toggle('hidden', mode !== 'recording');
   overlayEls.loader.classList.toggle('hidden', mode !== 'loading');
   overlayEls.glyph.classList.toggle('hidden', mode === 'recording' || mode === 'loading');
+  overlayEls.badge.classList.toggle('hidden', !handsFree);
+  overlayEls.badge.setAttribute('aria-hidden', handsFree ? 'false' : 'true');
 }
 
 function bindDrag() {

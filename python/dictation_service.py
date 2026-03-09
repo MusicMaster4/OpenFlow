@@ -113,7 +113,7 @@ class DictationService:
         self.allowed_languages = normalize_languages(os.getenv("ALLOWED_LANGUAGES", "pt,en"))
         self.stop_event = threading.Event()
         self.audio_queue: queue.Queue[bytes] = queue.Queue()
-        self.segment_queue: queue.Queue[Optional[np.ndarray]] = queue.Queue()
+        self.segment_queue: queue.Queue[Optional[tuple[int, np.ndarray]]] = queue.Queue()
         self.processing_thread = threading.Thread(target=self._process_audio_loop, daemon=True)
         self.transcriber_thread = threading.Thread(target=self._transcribe_loop, daemon=True)
         self.stream: Optional[sd.InputStream] = None
@@ -128,6 +128,8 @@ class DictationService:
         self.model = None
         self.active_device = "cpu"
         self.device_note = ""
+        self.current_session_id: Optional[int] = None
+        self.canceled_session_ids: set[int] = set()
 
     def emit(self, event_type: str, payload: Optional[dict] = None) -> None:
         print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
@@ -249,12 +251,49 @@ class DictationService:
             no_speech_threshold=0.45,
         )
 
-    def start(self) -> None:
+    @staticmethod
+    def _coerce_session_id(payload: Optional[dict]) -> Optional[int]:
+        if not payload:
+            return None
+
+        value = payload.get("session_id")
+        if value is None:
+            return None
+
+        try:
+            session_id = int(value)
+        except (TypeError, ValueError):
+            return None
+
+        return session_id if session_id > 0 else None
+
+    def _close_stream(self) -> None:
+        if self.stream is None:
+            return
+
+        self.stream.stop()
+        self.stream.close()
+        self.stream = None
+
+    def _clear_audio_queue(self) -> None:
+        while True:
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def start(self, payload: Optional[dict] = None) -> None:
         if self.listening:
             return
 
+        session_id = self._coerce_session_id(payload)
+        if session_id is not None:
+            self.current_session_id = session_id
+            self.canceled_session_ids.discard(session_id)
+
         self._reset_segment_state()
         self.pending_segments = []
+        self._clear_audio_queue()
         self.stream = sd.InputStream(
             samplerate=self.sample_rate,
             blocksize=self.frame_samples,
@@ -264,24 +303,43 @@ class DictationService:
         )
         self.stream.start()
         self.listening = True
-        self.emit("state", {"phase": "listening", "listening": True})
+        self.emit(
+            "state",
+            {"phase": "listening", "listening": True, "session_id": self.current_session_id},
+        )
 
-    def stop(self) -> None:
+    def stop(self, payload: Optional[dict] = None) -> None:
         if not self.listening:
             return
 
+        session_id = self._coerce_session_id(payload) or self.current_session_id
         self.listening = False
-        if self.stream is not None:
-            self.stream.stop()
-            self.stream.close()
-            self.stream = None
+        self._close_stream()
 
         self._flush_open_segment()
-        self.emit("partial", {"text": ""})
-        if self._queue_pending_transcription():
-            self.emit("state", {"phase": "transcribing", "listening": False})
+        self.emit("partial", {"text": "", "session_id": session_id})
+        if self._queue_pending_transcription(session_id):
+            self.emit("state", {"phase": "transcribing", "listening": False, "session_id": session_id})
         else:
-            self.emit("state", {"phase": "idle", "listening": False})
+            if self.current_session_id == session_id:
+                self.current_session_id = None
+            self.emit("state", {"phase": "idle", "listening": False, "session_id": session_id})
+
+    def cancel(self, payload: Optional[dict] = None) -> None:
+        session_id = self._coerce_session_id(payload) or self.current_session_id
+        if session_id is not None:
+            self.canceled_session_ids.add(session_id)
+
+        self.listening = False
+        self._close_stream()
+        self._reset_segment_state()
+        self.pending_segments = []
+        self._clear_audio_queue()
+        if self.current_session_id == session_id:
+            self.current_session_id = None
+
+        self.emit("partial", {"text": "", "session_id": session_id})
+        self.emit("state", {"phase": "idle", "listening": False, "session_id": session_id})
 
     def configure(self, payload: Optional[dict]) -> None:
         payload = payload or {}
@@ -339,7 +397,14 @@ class DictationService:
                 self.voiced_frames = [buffered for buffered, _ in self.ring_buffer]
                 self.ring_buffer.clear()
                 self.silence_frames = 0
-                self.emit("state", {"phase": "listening", "listening": True})
+                self.emit(
+                    "state",
+                    {
+                        "phase": "listening",
+                        "listening": True,
+                        "session_id": self.current_session_id,
+                    },
+                )
             return
 
         self.voiced_frames.append(frame)
@@ -355,8 +420,8 @@ class DictationService:
         audio = np.frombuffer(b"".join(frames), dtype=np.int16).astype(np.float32) / 32768.0
         self.pending_segments.append(audio)
 
-    def _queue_pending_transcription(self) -> bool:
-        if not self.pending_segments:
+    def _queue_pending_transcription(self, session_id: Optional[int]) -> bool:
+        if not self.pending_segments or session_id is None:
             return False
 
         if len(self.pending_segments) == 1:
@@ -373,14 +438,18 @@ class DictationService:
             merged_audio = np.concatenate(merged_parts)
 
         self.pending_segments = []
-        self.segment_queue.put(merged_audio)
+        self.segment_queue.put((session_id, merged_audio))
         return True
 
     def _transcribe_loop(self) -> None:
         while not self.stop_event.is_set():
-            segment = self.segment_queue.get()
-            if segment is None:
+            queued_segment = self.segment_queue.get()
+            if queued_segment is None:
                 break
+            session_id, segment = queued_segment
+
+            if session_id in self.canceled_session_ids:
+                continue
 
             selected_language = self.allowed_languages[0]
             language_confidence = 1.0
@@ -408,15 +477,18 @@ class DictationService:
 
                 parts = []
                 for piece in segments:
+                    if session_id in self.canceled_session_ids:
+                        parts = []
+                        break
                     cleaned = piece.text.strip()
                     if not cleaned:
                         continue
                     parts.append(cleaned)
-                    self.emit("partial", {"text": " ".join(parts)})
+                    self.emit("partial", {"text": " ".join(parts), "session_id": session_id})
                 transcription_ms = round((time.perf_counter() - started_at) * 1000, 1)
 
                 text = " ".join(parts).strip()
-                if text:
+                if text and session_id not in self.canceled_session_ids:
                     language = self._normalize_language(getattr(info, "language", None)) or selected_language
                     if language not in self.allowed_languages:
                         language = selected_language
@@ -430,13 +502,25 @@ class DictationService:
                             "confidence": getattr(info, "language_probability", language_confidence),
                             "transcription_ms": transcription_ms,
                             "audio_duration_ms": audio_duration_ms,
+                            "session_id": session_id,
                         },
                     )
             except Exception as error:
                 self.emit("error", {"message": f"Erro na transcricao: {error}"})
             finally:
-                self.emit("partial", {"text": ""})
-                self.emit("state", {"phase": "listening" if self.listening else "idle", "listening": self.listening})
+                if self.current_session_id == session_id and not self.listening:
+                    self.current_session_id = None
+
+                self.emit("partial", {"text": "", "session_id": session_id})
+                self.emit(
+                    "state",
+                    {
+                        "phase": "listening" if self.listening else "idle",
+                        "listening": self.listening,
+                        "session_id": session_id,
+                    },
+                )
+                self.canceled_session_ids.discard(session_id)
 
     @staticmethod
     def _normalize_language(language: Optional[str]) -> str:
@@ -476,9 +560,11 @@ def main() -> int:
 
         try:
             if command_type == "start":
-                service.start()
+                service.start(payload)
             elif command_type == "stop":
-                service.stop()
+                service.stop(payload)
+            elif command_type == "cancel":
+                service.cancel(payload)
             elif command_type == "configure":
                 service.configure(payload)
             elif command_type == "shutdown":

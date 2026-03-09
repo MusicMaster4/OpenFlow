@@ -12,38 +12,32 @@
     <link rel="stylesheet" href="./overlay.css" />
   </head>
   <body>
-    <main class="overlay-shell" id="overlay-shell" data-mode="idle" aria-hidden="true">
+    <main
+      class="overlay-shell"
+      id="overlay-shell"
+      data-mode="idle"
+      data-hands-free="false"
+      aria-hidden="true"
+    >
       <section class="overlay-pill" id="overlay-pill">
-        <div class="overlay-node overlay-node--left">
+        <div class="overlay-halo"></div>
+        <div class="overlay-badge hidden" id="overlay-badge" aria-hidden="true"></div>
+
+        <div class="overlay-wave" id="overlay-wave">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+
+        <div class="overlay-loader hidden" id="overlay-loader">
+          <span></span>
           <span></span>
           <span></span>
         </div>
 
-        <div class="overlay-core">
-          <div class="overlay-core__halo"></div>
-          <div class="overlay-core__capsule"></div>
-
-          <div class="overlay-wave" id="overlay-wave">
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-
-          <div class="overlay-loader hidden" id="overlay-loader">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-
-          <div class="overlay-glyph hidden" id="overlay-glyph"></div>
-        </div>
-
-        <div class="overlay-node overlay-node--right">
-          <span></span>
-          <span></span>
-        </div>
+        <div class="overlay-glyph hidden" id="overlay-glyph"></div>
       </section>
     </main>
 

@@ -14,6 +14,7 @@ class HotkeyListener:
         self.hotkey = os.getenv("FLOW_HOTKEY", "ctrl+shift+space")
         self.stop_event = threading.Event()
         self.is_pressed = False
+        self.active_mode = "hold"
         self.state_lock = threading.Lock()
         self.event_hook = None
         self.suppress_hook = None
@@ -22,6 +23,8 @@ class HotkeyListener:
         if len(steps) != 1:
             raise RuntimeError("Apenas atalhos globais de uma etapa sao suportados.")
         self.hotkey_combinations = [set(combination) for combination in steps[0]]
+        self.alt_scan_codes = self._resolve_scan_codes("alt", "left alt", "right alt")
+        self.escape_scan_codes = self._resolve_scan_codes("esc", "escape")
 
     def emit(self, event_type: str, payload: dict | None = None) -> None:
         print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
@@ -47,12 +50,24 @@ class HotkeyListener:
         if self.event_hook is not None:
             keyboard.unhook(self.event_hook)
         self.is_pressed = False
+        self.active_mode = "hold"
         self.pressed_scan_codes.clear()
         self.event_hook = None
         self.suppress_hook = None
 
+    @staticmethod
+    def _resolve_scan_codes(*keys: str) -> set[int]:
+        scan_codes: set[int] = set()
+        for key in keys:
+            try:
+                scan_codes.update(keyboard.key_to_scan_codes(key))
+            except (KeyError, ValueError):
+                continue
+        return scan_codes
+
     def _handle_key_event(self, event) -> None:
         with self.state_lock:
+            was_pressed = event.scan_code in self.pressed_scan_codes
             if event.event_type == keyboard.KEY_DOWN:
                 self.pressed_scan_codes.add(event.scan_code)
             elif event.event_type == keyboard.KEY_UP:
@@ -60,18 +75,30 @@ class HotkeyListener:
             else:
                 return
 
+            if (
+                event.event_type == keyboard.KEY_DOWN
+                and event.scan_code in self.escape_scan_codes
+                and not was_pressed
+            ):
+                self.emit("cancel-requested", {"source": "escape"})
+
             combo_active = any(
                 combination.issubset(self.pressed_scan_codes) for combination in self.hotkey_combinations
             )
 
             if combo_active and not self.is_pressed:
                 self.is_pressed = True
-                self.emit("hotkey-pressed", {"shortcut": self.hotkey})
+                self.active_mode = (
+                    "hands-free" if self.alt_scan_codes & self.pressed_scan_codes else "hold"
+                )
+                self.emit("hotkey-pressed", {"shortcut": self.hotkey, "mode": self.active_mode})
                 return
 
             if not combo_active and self.is_pressed:
                 self.is_pressed = False
-                self.emit("hotkey-released", {"shortcut": self.hotkey})
+                released_mode = self.active_mode
+                self.active_mode = "hold"
+                self.emit("hotkey-released", {"shortcut": self.hotkey, "mode": released_mode})
 
 
 def main() -> int:

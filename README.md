@@ -35,6 +35,9 @@ ALLOWED_LANGUAGES=pt,en
 
 O modelo selecionado na interface passa a valer para as proximas execucoes, mesmo sem mexer no `.env`.
 
+As transcricoes, estatisticas e preferencias salvas pela interface ficam persistidas em
+`%APPDATA%/MegaFala/store/settings.json` e sao recarregadas ao abrir o app novamente.
+
 ## Executar
 
 ```powershell
