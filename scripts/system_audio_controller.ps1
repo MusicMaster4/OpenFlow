@@ -1,8 +1,4 @@
-param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('get', 'mute', 'unmute')]
-    [string]$Action
-)
+$ErrorActionPreference = 'Stop'
 
 $coreAudioType = @"
 using System;
@@ -91,17 +87,93 @@ if (-not ([System.Management.Automation.PSTypeName]'MegaFala.Audio.EndpointVolum
     Add-Type -TypeDefinition $coreAudioType -Language CSharp
 }
 
-switch ($Action) {
-    'get' {
-        $isMuted = [MegaFala.Audio.EndpointVolume]::GetMute()
-        if ($isMuted) { 'true' } else { 'false' }
+$state = @{
+    CaptureActive = $false
+    RestoreMuted = $null
+    Running = $true
+}
+
+function Emit-Event {
+    param(
+        [string]$Type,
+        [hashtable]$Payload = @{}
+    )
+
+    [Console]::Out.WriteLine((@{
+        type = $Type
+        payload = $Payload
+    } | ConvertTo-Json -Compress))
+    [Console]::Out.Flush()
+}
+
+function Start-CaptureMute {
+    if ($state.CaptureActive) {
+        return
     }
-    'mute' {
+
+    $wasMuted = [MegaFala.Audio.EndpointVolume]::GetMute()
+    $state.RestoreMuted = $wasMuted
+
+    if (-not $wasMuted) {
         [MegaFala.Audio.EndpointVolume]::SetMute($true)
-        'true'
     }
-    'unmute' {
+
+    $state.CaptureActive = $true
+}
+
+function Stop-CaptureMute {
+    if (-not $state.CaptureActive) {
+        return
+    }
+
+    $restoreMuted = $state.RestoreMuted
+    $state.CaptureActive = $false
+    $state.RestoreMuted = $null
+
+    if ($restoreMuted -eq $false) {
         [MegaFala.Audio.EndpointVolume]::SetMute($false)
-        'false'
     }
+}
+
+Emit-Event -Type 'ready'
+
+try {
+    while ($state.Running) {
+        $line = [Console]::In.ReadLine()
+        if ($null -eq $line) {
+            break
+        }
+
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        try {
+            $command = $line | ConvertFrom-Json
+        } catch {
+            Emit-Event -Type 'error' -Payload @{ message = 'Comando JSON invalido recebido pelo controlador de audio.' }
+            continue
+        }
+
+        switch ($command.type) {
+            'capture-begin' {
+                Start-CaptureMute
+            }
+            'capture-end' {
+                Stop-CaptureMute
+            }
+            'shutdown' {
+                Stop-CaptureMute
+                $state.Running = $false
+            }
+            default {
+                Emit-Event -Type 'warning' -Payload @{ message = "Comando desconhecido: $($command.type)" }
+            }
+        }
+    }
+} catch {
+    Emit-Event -Type 'error' -Payload @{ message = $_.Exception.Message }
+    throw
+} finally {
+    Stop-CaptureMute
 }
