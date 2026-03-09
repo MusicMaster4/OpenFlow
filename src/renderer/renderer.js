@@ -268,12 +268,12 @@ function hideToast() {
     toastHideTimer = null;
   }
 
-  els.noticeStrip.classList.remove('is-visible', 'toast--warning', 'toast--error');
+  els.noticeStrip.classList.remove('is-visible', 'toast--error');
   els.noticeStrip.classList.add('hidden');
   els.noticeStrip.textContent = '';
 }
 
-function showToast(message, tone = 'warning', autoHide = true) {
+function showToast(message, autoHide = true) {
   if (!message) {
     hideToast();
     return;
@@ -285,8 +285,8 @@ function showToast(message, tone = 'warning', autoHide = true) {
   }
 
   els.noticeStrip.textContent = message;
-  els.noticeStrip.classList.remove('hidden', 'toast--warning', 'toast--error');
-  els.noticeStrip.classList.add(tone === 'error' ? 'toast--error' : 'toast--warning');
+  els.noticeStrip.classList.remove('hidden', 'toast--error');
+  els.noticeStrip.classList.add('toast--error');
 
   window.requestAnimationFrame(() => {
     els.noticeStrip.classList.add('is-visible');
@@ -315,9 +315,7 @@ function renderState(state) {
   renderHistory(state.history, state.historyTotal);
 
   if (state.error) {
-    showToast(state.error, 'error', false);
-  } else if (state.notice) {
-    showToast(state.notice, 'warning', true);
+    showToast(state.error, false);
   } else {
     hideToast();
   }

@@ -1,95 +1,77 @@
 :root {
-  --overlay-shell: rgba(9, 12, 18, 0.97);
-  --overlay-shell-edge: rgba(255, 255, 255, 0.12);
-  --overlay-shell-highlight: rgba(255, 255, 255, 0.06);
-  --overlay-idle: rgba(242, 246, 252, 0.88);
-  --overlay-recording: #f0fbff;
-  --overlay-recording-glow: rgba(196, 245, 255, 0.24);
-  --overlay-handsfree: #ff8b7a;
-  --overlay-handsfree-glow: rgba(255, 139, 122, 0.28);
-  --overlay-loading: #efbbb8;
-  --overlay-loading-glow: rgba(239, 187, 184, 0.24);
-  --overlay-error: #ff8a80;
-  --overlay-level: 0;
+  /* Dark Mode Default */
+  --overlay-bg: #1a1a1a;
+  --overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --overlay-wave: #ffffff;
+  --overlay-dot: #ef4444; 
+  --overlay-idle: rgba(255, 255, 255, 0.3);
+}
+
+:root[data-theme="light"] {
+  --overlay-bg: #ffffff;
+  --overlay-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+  --overlay-wave: #000000;
+  --overlay-dot: #ef4444; 
+  --overlay-idle: rgba(0, 0, 0, 0.25);
 }
 
 * {
   box-sizing: border-box;
 }
 
-html,
-body {
+html, body {
   margin: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
   background: transparent;
-}
-
-body {
   padding: 0;
-  font-family: "Aptos", "Calibri", sans-serif;
 }
 
 .overlay-shell {
   width: 100%;
   height: 100%;
   background: transparent;
+  padding: 3px; /* Reduced from 8px to make the pill thicker */
 }
 
 .overlay-pill {
   position: relative;
   width: 100%;
   height: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, var(--overlay-shell-highlight), transparent 36%),
-    var(--overlay-shell);
-  border: 1px solid var(--overlay-shell-edge);
-  overflow: hidden;
+  background: var(--overlay-bg);
+  box-shadow: var(--overlay-shadow);
   cursor: grab;
   user-select: none;
-  transition: border-color 180ms ease, background-color 180ms ease;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.1s ease;
 }
 
-.overlay-pill::before {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 46%);
-  pointer-events: none;
+.overlay-pill:active {
+  transform: scale(0.96);
 }
 
 .overlay-shell--dragging .overlay-pill {
   cursor: grabbing;
 }
 
-.overlay-halo {
-  position: absolute;
-  width: 56px;
-  height: 16px;
-  border-radius: 999px;
-  opacity: 0;
-  filter: blur(8px);
-  transition: opacity 180ms ease, background 180ms ease, transform 180ms ease;
-}
-
+/* Hands-free Dot */
 .overlay-badge {
   position: absolute;
-  top: 6px;
-  right: 10px;
-  z-index: 2;
-  width: 7px;
-  height: 7px;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--overlay-handsfree);
-  box-shadow: 0 0 8px var(--overlay-handsfree-glow);
-  animation: record-dot 960ms ease-in-out infinite;
+  background: var(--overlay-dot);
+  animation: pulse-badge 0.75s infinite alternate ease-in-out; /* Pulsing twice as fast */
 }
 
+/* Containers */
 .overlay-wave,
 .overlay-loader,
 .overlay-glyph {
@@ -97,143 +79,75 @@ body {
   z-index: 1;
 }
 
+/* Idle state glyph */
+.overlay-glyph {
+  width: 14px;
+  height: 4px; /* Whole number */
+  border-radius: 2px;
+  background: var(--overlay-idle);
+  transition: background-color 0.3s ease;
+}
+
+/* Audio wave */
 .overlay-wave {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  height: 16px;
+  gap: 4px; /* Whole number */
+  height: 24px;
 }
 
 .overlay-wave span {
-  width: 2px;
-  height: 3px;
+  width: 4px; /* Whole number to prevent subpixel rendering issues */
+  height: 4px;
   border-radius: 999px;
-  background: var(--overlay-recording);
-  box-shadow: 0 0 6px var(--overlay-recording-glow);
-  opacity: 0.34;
+  background: var(--overlay-wave);
+  opacity: 0.4;
   transform-origin: center;
   transition:
     height 90ms linear,
     opacity 90ms linear,
-    transform 90ms linear,
-    background 160ms ease,
-    box-shadow 160ms ease;
+    background-color 0.3s ease;
 }
 
+/* Loading state */
 .overlay-loader {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
 }
 
 .overlay-loader span {
-  width: 3px;
-  height: 3px;
+  width: 6px; /* Whole number */
+  height: 6px; /* Whole number */
   border-radius: 50%;
-  background: var(--overlay-loading);
-  box-shadow: 0 0 6px var(--overlay-loading-glow);
-  animation: pulse-dot 700ms ease-in-out infinite;
+  background: var(--overlay-wave);
+  animation: bounce-dot 0.6s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.8;
 }
 
-.overlay-loader span:nth-child(2) {
-  animation-delay: 80ms;
-}
+.overlay-loader span:nth-child(2) { animation-delay: 0.15s; }
+.overlay-loader span:nth-child(3) { animation-delay: 0.3s; }
 
-.overlay-loader span:nth-child(3) {
-  animation-delay: 160ms;
-}
-
-.overlay-glyph {
-  width: 16px;
-  height: 4px;
-  border-radius: 999px;
-  background: rgba(242, 246, 252, 0.14);
-  overflow: hidden;
-}
-
-.overlay-glyph::before {
-  content: '';
-  position: absolute;
-  inset: 1px auto 1px 1px;
-  width: 6px;
-  border-radius: inherit;
-  background: var(--overlay-idle);
-  box-shadow: 0 0 6px rgba(242, 246, 252, 0.16);
-}
-
-.overlay-pill:hover {
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.overlay-shell[data-mode='recording'] .overlay-halo {
-  opacity: 1;
-  background: radial-gradient(circle, var(--overlay-recording-glow), transparent 72%);
-  transform: scale(calc(0.96 + (var(--overlay-level) * 0.08)));
-}
-
-.overlay-shell[data-hands-free='true'] .overlay-pill {
-  border-color: rgba(255, 139, 122, 0.42);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 36%),
-    rgba(18, 12, 12, 0.97);
-}
-
-.overlay-shell[data-hands-free='true'][data-mode='recording'] .overlay-halo {
-  background: radial-gradient(circle, var(--overlay-handsfree-glow), transparent 72%);
-}
-
-.overlay-shell[data-hands-free='true'][data-mode='recording'] .overlay-wave span {
-  background: var(--overlay-handsfree);
-  box-shadow: 0 0 6px var(--overlay-handsfree-glow);
-}
-
-.overlay-shell[data-mode='loading'] .overlay-halo {
-  opacity: 0.94;
-  background: radial-gradient(circle, var(--overlay-loading-glow), transparent 72%);
-}
-
-.overlay-shell[data-mode='error'] .overlay-halo {
-  opacity: 0.78;
-  background: radial-gradient(circle, rgba(255, 138, 128, 0.22), transparent 72%);
-}
-
+/* Error state */
 .overlay-shell[data-mode='error'] .overlay-glyph {
-  background: rgba(255, 138, 128, 0.16);
-}
-
-.overlay-shell[data-mode='error'] .overlay-glyph::before {
-  width: 8px;
-  background: var(--overlay-error);
+  background: var(--overlay-wave);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
-@keyframes pulse-dot {
-  0%,
-  100% {
-    transform: scale(0.82);
-    opacity: 0.44;
-  }
-
-  50% {
-    transform: scale(1.16);
-    opacity: 1;
-  }
+@keyframes bounce-dot {
+  0% { transform: translateY(2px); opacity: 0.4; }
+  100% { transform: translateY(-2.5px); opacity: 1; }
 }
 
-@keyframes record-dot {
-  0%,
-  100% {
-    transform: scale(0.9);
-    opacity: 0.72;
-  }
-
-  50% {
-    transform: scale(1.15);
-    opacity: 1;
-  }
+@keyframes pulse-badge {
+  0% { opacity: 0.4; transform: translateY(-50%) scale(0.9); }
+  100% { opacity: 1; transform: translateY(-50%) scale(1.1); }
 }

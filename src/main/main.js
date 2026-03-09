@@ -684,6 +684,42 @@ function insertTextIntoFocusedApp(text) {
   });
 }
 
+function getLatestSavedTranscriptionText() {
+  const latestHistoryEntry = state.history[0];
+  if (latestHistoryEntry && typeof latestHistoryEntry.text === 'string' && latestHistoryEntry.text.trim()) {
+    return latestHistoryEntry.text.trim();
+  }
+
+  if (typeof state.latestFinal === 'string' && state.latestFinal.trim()) {
+    return state.latestFinal.trim();
+  }
+
+  return '';
+}
+
+async function pasteLatestTranscription() {
+  const latestText = getLatestSavedTranscriptionText();
+  if (!latestText) {
+    setState({
+      error: 'Nenhuma transcricao salva disponivel para colar.',
+    });
+    return;
+  }
+
+  try {
+    await insertTextIntoFocusedApp(normalizeTextForPaste(latestText));
+    if (state.error === 'Nenhuma transcricao salva disponivel para colar.') {
+      setState({
+        error: '',
+      });
+    }
+  } catch (error) {
+    setState({
+      error: `Falha ao colar a ultima transcricao: ${error.message}`,
+    });
+  }
+}
+
 function startListening(mode = 'hold') {
   const captureMode = normalizeCaptureMode(mode);
 
@@ -1019,6 +1055,9 @@ function handleHotkeyEvent(event) {
       break;
     case 'cancel-requested':
       cancelDictation(payload.source || 'escape');
+      break;
+    case 'paste-last-requested':
+      void pasteLatestTranscription();
       break;
     case 'warning':
       classifyWarning(payload.message || state.notice);

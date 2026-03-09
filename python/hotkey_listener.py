@@ -13,6 +13,7 @@ class HotkeyListener:
     def __init__(self) -> None:
         self.hotkey = os.getenv("FLOW_HOTKEY", "ctrl+windows")
         self.hands_free_hotkey = f"{self.hotkey}+space"
+        self.paste_last_hotkey = "ctrl+alt+v"
         self.stop_event = threading.Event()
         self.is_pressed = False
         self.active_mode = "hold"
@@ -43,6 +44,14 @@ class HotkeyListener:
                     trigger_on_release=False,
                 )
             )
+        self.suppress_hooks.append(
+            keyboard.add_hotkey(
+                self.paste_last_hotkey,
+                lambda: self.emit("paste-last-requested", {"shortcut": self.paste_last_hotkey}),
+                suppress=True,
+                trigger_on_release=True,
+            )
+        )
         self.event_hook = keyboard.hook(self._handle_key_event)
         self.emit("ready", {"shortcut": self.hotkey})
 

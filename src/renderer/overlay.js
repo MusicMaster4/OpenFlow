@@ -136,16 +136,16 @@ function renderOverlay(state) {
 function applyWaveLevel(level) {
   const clampedLevel = Math.max(0, Math.min(1, Number(level) || 0));
   const visualLevel = Math.min(1, clampedLevel * 2);
-  overlayEls.shell.style.setProperty('--overlay-level', visualLevel.toFixed(3));
 
   waveBars.forEach((bar, index) => {
     const intensity = Math.min(1, visualLevel * barWeights[index]);
-    const height = 3 + intensity * 12;
-    const opacity = 0.34 + intensity * 0.66;
-    const scale = 0.82 + intensity * 0.24;
-    bar.style.height = `${height.toFixed(2)}px`;
-    bar.style.opacity = opacity.toFixed(3);
-    bar.style.transform = `scaleY(${scale.toFixed(3)})`;
+    // Base height 4px, maximum height scaled up for a taller wave
+    const height = 4 + intensity * 16; 
+    const opacity = 0.4 + intensity * 0.6;
+    
+    // We use Math.round to avoid sub-pixel height rendering (which causes distortion)
+    bar.style.height = `${Math.round(height)}px`;
+    bar.style.opacity = opacity.toFixed(2);
   });
 }
 
@@ -186,7 +186,20 @@ function bindDrag() {
   });
 }
 
+function initTheme() {
+  const syncTheme = () => {
+    const savedTheme = localStorage.getItem('megafala-theme') || 'dark';
+    if (document.documentElement.getAttribute('data-theme') !== savedTheme) {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+  };
+  syncTheme();
+  window.addEventListener('storage', syncTheme);
+  setInterval(syncTheme, 500); // Polling as fallback across electron windows
+}
+
 async function bootstrap() {
+  initTheme();
   const initialState = await window.flowOverlay.getState();
   applyWaveLevel(initialState.audioLevel || 0);
   renderOverlay(initialState);
