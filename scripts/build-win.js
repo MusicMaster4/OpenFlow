@@ -88,6 +88,8 @@ async function main() {
     electronBuilderCli,
     '--win',
     'dir',
+    '--publish',
+    'never',
     '--config.win.signAndEditExecutable=false',
   ]);
 
@@ -119,6 +121,8 @@ async function main() {
     'nsis',
     '--prepackaged',
     unpackedDir,
+    '--publish',
+    'never',
     '--config.win.signAndEditExecutable=false',
   ]);
 }
