@@ -1,0 +1,85 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Install Python dependencies
+        run: |
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r .\python\requirements.txt
+          .\.venv\Scripts\python.exe -m pip install pyinstaller
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        run: npm run check
+
+      - name: Build Windows package
+        run: npm run dist:win
+
+      - name: Verify packaged binaries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $appPath = Join-Path $PWD 'dist\win-unpacked\MegaFala.exe'
+          if (-not (Test-Path $appPath)) {
+            throw "Executavel nao encontrado: $appPath"
+          }
+
+          $installer = Get-ChildItem -Path dist -Filter *.exe | Where-Object { $_.Name -ne 'MegaFala.exe' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw 'Instalador NSIS nao encontrado em dist/.'
+          }
+
+          Write-Host "App:" $appPath
+          Write-Host "Installer:" $installer.FullName
+
+      - name: Generate checksums
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = 'dist\SHA256SUMS-windows-x64.txt'
+          $lines = Get-ChildItem -Path dist -Filter *.exe | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          Set-Content -Path $output -Value $lines
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: megafala-windows-x64
+          path: |
+            dist/*.exe
+            dist/SHA256SUMS-windows-x64.txt
+          if-no-files-found: error

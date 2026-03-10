@@ -25,4 +25,6 @@ App desktop com Electron na interface e Faster-Whisper rodando localmente.
 
 As instrucoes completas de compilacao estao em [COMPILACAO.md](H:\Python\Tools\Wispr%20Flow%20Clone\COMPILACAO.md).
 
-Para macOS, gere artefatos separados para `Intel (x64)` e `Apple Silicon (arm64)`. O workflow em [build-macos.yml](H:\Python\Tools\Wispr%20Flow%20Clone\.github\workflows\build-macos.yml) ja faz isso no GitHub Actions.
+Os workflows do GitHub Actions ficam em [build-macos.yml](H:\Python\Tools\Wispr%20Flow%20Clone\.github\workflows\build-macos.yml) e [build-windows.yml](H:\Python\Tools\Wispr%20Flow%20Clone\.github\workflows\build-windows.yml).
+
+No macOS, o CI gera artefatos separados para `Intel (x64)` e `Apple Silicon (arm64)`. No Windows, o CI gera o instalador `NSIS` e valida o executavel empacotado.

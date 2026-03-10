@@ -257,6 +257,21 @@ Fluxo:
 
 Esse e o fluxo recomendado para este repositorio porque evita misturar um app Electron universal com subprocessos Python de arquitetura unica.
 
+## GitHub Actions para Windows
+
+O workflow em `.github/workflows/build-windows.yml` gera o build Windows `x64`.
+
+Fluxo:
+
+1. instala `Node.js 20` e `Python 3.12`
+2. cria `.venv` para atender ao `scripts/build-python.ps1`
+3. instala dependencias Python e Node
+4. roda `npm run check`
+5. gera os workers Python
+6. gera o app empacotado e o instalador `NSIS`
+7. valida se o executavel e o instalador foram realmente produzidos
+8. publica os artefatos e o arquivo de checksum
+
 ## Pipeline resumido
 
 ### Windows

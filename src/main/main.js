@@ -27,6 +27,7 @@ const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = true;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
+const HANDS_FREE_SOUND_DELAY_MS = 250;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
@@ -1568,7 +1569,7 @@ function playHandsFreeSoundIfEligible() {
     return;
   }
 
-  if (Date.now() - currentDictationStartedAt < 1000) {
+  if (Date.now() - currentDictationStartedAt < HANDS_FREE_SOUND_DELAY_MS) {
     return;
   }
 
