@@ -67,7 +67,12 @@ const TRANSLATIONS = {
     saveRule: 'Save rule',
     activeRules: 'Active rules',
     dictionaryRulesCopy: 'Replacement happens before the text enters history and the active field.',
+    showRules: 'Show rules',
+    hideRules: 'Hide rules',
+    dictionarySearchLabel: 'Search active rule',
+    dictionarySearchPlaceholder: 'Type a word from the input or output',
     noRules: 'No rules yet.',
+    noRuleResults: 'No rules found for this search.',
     entries: 'Inputs',
     output: 'Output',
     edit: 'Edit',
@@ -144,7 +149,12 @@ const TRANSLATIONS = {
     saveRule: 'Salvar regra',
     activeRules: 'Regras ativas',
     dictionaryRulesCopy: 'A substituição acontece antes do texto entrar no histórico e no campo ativo.',
+    showRules: 'Mostrar regras',
+    hideRules: 'Ocultar regras',
+    dictionarySearchLabel: 'Pesquisar regra ativa',
+    dictionarySearchPlaceholder: 'Digite uma palavra da entrada ou da saída',
     noRules: 'Nenhuma regra cadastrada.',
+    noRuleResults: 'Nenhuma regra encontrada para essa busca.',
     entries: 'Entradas',
     output: 'Saída',
     edit: 'Editar',
@@ -232,6 +242,9 @@ const els = {
   dictionaryLangEnLabel: document.getElementById('dictionary-lang-en-label'),
   dictionaryList: document.getElementById('dictionary-list'),
   dictionaryCount: document.getElementById('dictionary-count'),
+  toggleDictionaryRules: document.getElementById('toggle-dictionary-rules'),
+  dictionaryRulesBody: document.getElementById('dictionary-rules-body'),
+  dictionarySearch: document.getElementById('dictionary-search'),
   cancelDictionaryEdit: document.getElementById('cancel-dictionary-edit'),
   submitDictionaryRule: document.getElementById('submit-dictionary-rule'),
   openSettings: document.getElementById('open-settings'),
@@ -256,8 +269,10 @@ let settingsCloseTimer = null;
 let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
 let detectionLanguagesExpanded = false;
+let dictionaryRulesExpanded = false;
 let editingDictionaryRuleId = null;
 let toastHideTimer = null;
+let dictionaryFilter = '';
 
 const SETTINGS_CLOSE_DELAY_MS = 500;
 const TOAST_HIDE_DELAY_MS = 3200;
@@ -509,6 +524,12 @@ function applyTranslations() {
   els.dictionaryLangPtLabel.textContent = capitalizeLanguageLabel(langName('pt'));
   els.dictionaryLangEnLabel.textContent = capitalizeLanguageLabel(langName('en'));
   els.submitDictionaryRule.textContent = editingDictionaryRuleId ? t('saveRule') : t('addRule');
+  els.toggleDictionaryRules.textContent = dictionaryRulesExpanded ? t('hideRules') : t('showRules');
+  const dictionarySearchLabel = els.dictionarySearch.previousElementSibling;
+  if (dictionarySearchLabel) {
+    dictionarySearchLabel.textContent = t('dictionarySearchLabel');
+  }
+  els.dictionarySearch.setAttribute('placeholder', t('dictionarySearchPlaceholder'));
 }
 
 function renderUsageSummary(summary = {}) {
@@ -614,6 +635,13 @@ function renderHistory(history, total) {
 
 function renderDictionary(entries) {
   const list = Array.isArray(entries) ? entries : [];
+  const query = dictionaryFilter.trim().toLocaleLowerCase(locale());
+  const filteredList = !query
+    ? list
+    : list.filter((entry) => {
+      const searchText = `${(entry.sources || []).join(' ')} ${entry.target || ''}`.toLocaleLowerCase(locale());
+      return searchText.includes(query);
+    });
   const ruleSingular = locale() === 'pt-BR' ? 'regra' : 'rule';
   const rulePlural = locale() === 'pt-BR' ? 'regras' : 'rules';
 
@@ -623,7 +651,12 @@ function renderDictionary(entries) {
     return;
   }
 
-  els.dictionaryList.innerHTML = list
+  if (filteredList.length === 0) {
+    els.dictionaryList.innerHTML = `<div class="history-empty">${esc(t('noRuleResults'))}</div>`;
+    return;
+  }
+
+  els.dictionaryList.innerHTML = filteredList
     .map((entry) => `
       <article class="dictionary-item">
         <div class="dictionary-item__content">
@@ -648,6 +681,16 @@ function renderDictionary(entries) {
       </article>
     `)
     .join('');
+}
+
+function setDictionaryRulesExpanded(open) {
+  dictionaryRulesExpanded = Boolean(open);
+  els.dictionaryRulesBody.classList.toggle('hidden', !dictionaryRulesExpanded);
+  els.toggleDictionaryRules.setAttribute('aria-expanded', String(dictionaryRulesExpanded));
+  els.toggleDictionaryRules.textContent = dictionaryRulesExpanded ? t('hideRules') : t('showRules');
+  if (dictionaryRulesExpanded) {
+    els.dictionarySearch.focus();
+  }
 }
 
 function renderModels(state) {
@@ -879,6 +922,13 @@ function setupHandlers() {
   els.openDictionary.addEventListener('click', () => setDictionaryOpen(true));
   els.closeDictionary.addEventListener('click', () => setDictionaryOpen(false));
   els.dictionaryBackdrop.addEventListener('click', () => setDictionaryOpen(false));
+  els.toggleDictionaryRules.addEventListener('click', () => {
+    setDictionaryRulesExpanded(!dictionaryRulesExpanded);
+  });
+  els.dictionarySearch.addEventListener('input', () => {
+    dictionaryFilter = els.dictionarySearch.value || '';
+    if (lastState) renderDictionary(lastState.dictionaryEntries);
+  });
 
   els.showOverlayBar.addEventListener('change', async () => {
     renderState(await window.flowLocal.updateSettings({ showOverlayBar: els.showOverlayBar.checked }));
