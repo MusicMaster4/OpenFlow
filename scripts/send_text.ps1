@@ -6,7 +6,7 @@ param(
 try {
   $Text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedText))
 } catch {
-  throw "Falha ao decodificar o texto em UTF-8 para envio."
+  throw "Failed to decode UTF-8 text for sending."
 }
 
 if ([string]::IsNullOrEmpty($Text)) {
@@ -34,7 +34,7 @@ function Invoke-ClipboardAction {
     }
   }
 
-  throw "Falha ao acessar o clipboard durante '$Operation': $($lastError.Exception.Message)"
+  throw "Failed to access the clipboard during '$Operation': $($lastError.Exception.Message)"
 }
 
 $previousClipboard = $null
@@ -56,7 +56,7 @@ try {
   } | Out-Null
   Start-Sleep -Milliseconds 120
   [System.Windows.Forms.SendKeys]::SendWait('^v')
-  [Console]::Out.WriteLine('__MEGAFALA_PASTE_OK__')
+  [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
   Start-Sleep -Milliseconds 220
 } finally {
   try {
@@ -70,6 +70,6 @@ try {
       } | Out-Null
     }
   } catch {
-    # Best effort: a falha em restaurar o clipboard nao pode quebrar a colagem.
+    # Best effort: clipboard restore failures should not break the paste operation.
   }
 }

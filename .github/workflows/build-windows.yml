@@ -51,14 +51,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $appPath = Join-Path $PWD 'dist\win-unpacked\MegaFala.exe'
+          $appPath = Join-Path $PWD 'dist\win-unpacked\OpenFlow.exe'
           if (-not (Test-Path $appPath)) {
-            throw "Executavel nao encontrado: $appPath"
+            throw "Executable not found: $appPath"
           }
 
-          $installer = Get-ChildItem -Path dist -Filter *.exe | Where-Object { $_.Name -ne 'MegaFala.exe' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $installer = Get-ChildItem -Path dist -Filter *.exe | Where-Object { $_.Name -ne 'OpenFlow.exe' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $installer) {
-            throw 'Instalador NSIS nao encontrado em dist/.'
+            throw 'NSIS installer not found in dist/.'
           }
 
           Write-Host "App:" $appPath
@@ -78,7 +78,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: megafala-windows-x64
+          name: openflow-windows-x64
           path: |
             dist/*.exe
             dist/SHA256SUMS-windows-x64.txt

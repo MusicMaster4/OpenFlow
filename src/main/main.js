@@ -20,7 +20,7 @@ const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'option+space' : 'ctrl+
 const DEFAULT_PASTE_LAST_SHORTCUT =
   process.platform === 'darwin' ? 'command+option+v' : 'ctrl+alt+v';
 const PASTE_SHORTCUT_SETTLE_DELAY_MS = process.platform === 'darwin' ? 90 : 70;
-const DEFAULT_LANGUAGES = ['pt', 'en'];
+const DEFAULT_LANGUAGES = ['en'];
 const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
@@ -28,38 +28,38 @@ const DEFAULT_LAUNCH_AT_LOGIN = true;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
-const WINDOWS_PASTE_READY_SIGNAL = '__MEGAFALA_PASTE_OK__';
+const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
 const WINDOWS_PASTE_TIMEOUT_MS = 4000;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
-const APP_NAME = 'MegaFala';
-const APP_ID = 'com.megafala.app';
+const APP_NAME = 'OpenFlow';
+const APP_ID = 'com.openflow.app';
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
     label: 'Lite',
-    description: 'Minima latencia para testes rapidos.',
+    description: 'Minimum latency for quick tests.',
   },
   {
     id: 'base',
     label: 'Rapido',
-    description: 'Melhor que tiny, ainda bem agil.',
+    description: 'Better than tiny while staying very fast.',
   },
   {
     id: 'small',
     label: 'Equilibrado',
-    description: 'Bom meio-termo para uso diario.',
+    description: 'A solid middle ground for daily use.',
   },
   {
     id: 'medium',
     label: 'Preciso',
-    description: 'Mais qualidade com latencia moderada.',
+    description: 'More quality with moderate latency.',
   },
   {
     id: 'large-v3',
     label: 'Maximo',
-    description: 'Maior precisao, custo local mais alto.',
+    description: 'Highest accuracy with a heavier local cost.',
   },
 ];
 
@@ -207,7 +207,7 @@ const MAIN_TRANSLATIONS = {
     transcriptionBusy: 'Wait for the current transcription to finish before starting a new dictation.',
     launchAtLoginOn: 'Start with the computer enabled.',
     launchAtLoginOff: 'Start with the computer disabled.',
-    trayOpenApp: 'Open MegaFala',
+    trayOpenApp: 'Open app',
     trayHideApp: 'Hide window',
     trayQuit: 'Quit',
   },
@@ -233,7 +233,7 @@ const MAIN_TRANSLATIONS = {
       'Aguarde a transcricao atual terminar antes de iniciar um novo ditado.',
     launchAtLoginOn: 'Inicializacao com o computador ativada.',
     launchAtLoginOff: 'Inicializacao com o computador desativada.',
-    trayOpenApp: 'Abrir MegaFala',
+    trayOpenApp: 'Abrir OpenFlow',
     trayHideApp: 'Ocultar janela',
     trayQuit: 'Fechar',
   },
@@ -886,15 +886,15 @@ function getWorkerLaunchSpec(workerName) {
 
 function getAppIconPath() {
   if (process.platform === 'darwin') {
-    return path.join(getProjectRoot(), 'src', 'assets', 'megaf.png');
+    return path.join(getProjectRoot(), 'src', 'assets', 'openflow.png');
   }
 
-  return path.join(getProjectRoot(), 'src', 'assets', 'megaf.ico');
+  return path.join(getProjectRoot(), 'src', 'assets', 'openflow.ico');
 }
 
 function getTrayIconAssetPath() {
   if (process.platform === 'darwin') {
-    return path.join(getProjectRoot(), 'src', 'assets', 'megaf-trayTemplate.png');
+    return path.join(getProjectRoot(), 'src', 'assets', 'openflow-trayTemplate.png');
   }
 
   return getAppIconPath();
@@ -1543,7 +1543,7 @@ function applyDictionaryReplacements(text, detectedLanguage) {
   }
 
   let output = input;
-  const tokenPrefix = `__MEGAFALA_DICT_${Date.now().toString(36)}__`;
+  const tokenPrefix = `__OPENFLOW_DICT_${Date.now().toString(36)}__`;
   const replacements = [];
 
   for (const entry of scopedSources) {
@@ -1653,7 +1653,7 @@ function insertTextIntoFocusedApp(text) {
         if (/not authorized|not permitted|assistive access|system events got an error/i.test(stderr)) {
           reject(
             new Error(
-              'Autorize o MegaFala em Privacy & Security > Accessibility e Automation para colar no app ativo.',
+              'Allow OpenFlow in Privacy & Security > Accessibility and Automation to paste into the active app.',
             ),
           );
           return;
@@ -1742,7 +1742,7 @@ function insertTextIntoFocusedApp(text) {
         // Best effort.
       }
 
-      rejectOnce(new Error('Tempo limite excedido ao colar o texto no app ativo.'));
+        rejectOnce(new Error('Timed out while pasting text into the active app.'));
     }, WINDOWS_PASTE_TIMEOUT_MS);
   });
 }
@@ -1936,7 +1936,7 @@ async function pasteLatestTranscription() {
     }
   } catch (error) {
     setState({
-      error: `Falha ao colar a ultima transcricao: ${error.message}`,
+      error: `Failed to paste the last transcription: ${error.message}`,
     });
   } finally {
     setState({
@@ -2251,7 +2251,7 @@ async function handleServiceEvent(event) {
         await insertTextIntoFocusedApp(pasteText);
       } catch (error) {
         setState({
-          error: `Falha ao colar texto no campo ativo: ${error.message}`,
+      error: `Failed to paste text into the active field: ${error.message}`,
         });
       } finally {
         setState({
@@ -2500,7 +2500,7 @@ function registerMainShortcut() {
     mainShortcutRegisteredViaElectron = false;
     setState({
       hotkeyOnline: false,
-      error: `Falha ao registrar o atalho ${state.shortcut}: ${error.message}`,
+      error: `Failed to register shortcut ${state.shortcut}: ${error.message}`,
     });
     return false;
   }
@@ -2535,7 +2535,7 @@ function registerPasteLastShortcut() {
   } catch (error) {
     pasteLastRegisteredViaElectron = false;
     setState({
-      error: `Falha ao registrar o atalho ${state.pasteLastShortcut}: ${error.message}`,
+      error: `Failed to register shortcut ${state.pasteLastShortcut}: ${error.message}`,
     });
     return false;
   }

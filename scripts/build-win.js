@@ -9,12 +9,12 @@ if (process.platform !== 'win32') {
 
 const projectRoot = path.resolve(__dirname, '..');
 const packageJson = require(path.join(projectRoot, 'package.json'));
-const productName = packageJson.productName || packageJson.name || 'MegaFala';
+const productName = packageJson.productName || packageJson.name || 'OpenFlow';
 const electronBuilderCli = path.join(projectRoot, 'node_modules', 'electron-builder', 'cli.js');
 const distDir = path.join(projectRoot, 'dist');
 const unpackedDir = path.join(distDir, 'win-unpacked');
 const executablePath = path.join(unpackedDir, `${productName}.exe`);
-const iconPath = path.join(projectRoot, 'src', 'assets', 'megaf.ico');
+const iconPath = path.join(projectRoot, 'src', 'assets', 'openflow.ico');
 const rceditBinaryName = process.arch === 'ia32' ? 'rcedit-ia32.exe' : 'rcedit-x64.exe';
 
 function run(command, args) {

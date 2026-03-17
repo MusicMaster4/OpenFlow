@@ -7,17 +7,17 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MegaFala</title>
-    <link rel="icon" href="../assets/megaf.png" sizes="any" />
+    <title>OpenFlow</title>
+    <link rel="icon" href="../assets/openflow.png" sizes="any" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
         <div class="brand-block">
-          <img class="brand-block__icon" src="../assets/megaf.png" alt="MegaFala" />
+          <img class="brand-block__icon" src="../assets/openflow.png" alt="OpenFlow" />
           <div>
-            <h1>MegaFala</h1>
+            <h1>OpenFlow</h1>
             <p class="topbar__copy" data-i18n="appTagline">Write at the speed of thought.</p>
           </div>
         </div>
@@ -189,7 +189,7 @@
               <div>
                 <strong data-i18n="startWithComputer">Start with the computer</strong>
                 <p data-i18n="startWithComputerCopy">
-                  Launch MegaFala in the background when you sign in.
+                  Launch OpenFlow in the background when you sign in.
                 </p>
               </div>
               <span class="toggle-switch">
@@ -216,7 +216,7 @@
               <div>
                 <h2 data-i18n="detectionLanguages">Detection languages</h2>
                 <p class="section-head__copy" data-i18n="detectionLanguagesCopy">
-                  Portuguese and English are enabled by default. Expand to add more languages.
+                  English is enabled by default. Expand to add more languages.
                 </p>
               </div>
             </div>
@@ -305,7 +305,7 @@
                   id="dictionary-sources"
                   rows="4"
                   data-i18n-placeholder="dictionarySourcesPlaceholder"
-                  placeholder="One variation per line&#10;mega fala&#10;megafala"
+                  placeholder="One variation per line&#10;open flow&#10;openflow"
                 ></textarea>
                 <p class="form-hint" data-i18n="dictionarySourcesHint">
                   Add as many variations as needed. Use one entry per line.
@@ -319,7 +319,7 @@
                   type="text"
                   autocomplete="off"
                   data-i18n-placeholder="dictionaryTargetPlaceholder"
-                  placeholder="Example: MegaFala"
+                  placeholder="Example: OpenFlow"
                 />
               </label>
             </div>
@@ -330,7 +330,7 @@
                 <div class="language-grid language-grid--dictionary">
                   <label class="language-option">
                     <input id="dictionary-lang-pt" type="checkbox" value="pt" />
-                    <span id="dictionary-lang-pt-label">Português</span>
+                    <span id="dictionary-lang-pt-label">Portuguese</span>
                   </label>
                   <label class="language-option">
                     <input id="dictionary-lang-en" type="checkbox" value="en" />
@@ -364,18 +364,18 @@
                   aria-expanded="false"
                   aria-controls="dictionary-rules-body"
                 >
-                  Mostrar regras
+                  Show rules
                 </button>
               </div>
             </div>
 
             <div class="dictionary-section__body hidden" id="dictionary-rules-body">
               <label class="dictionary-search" for="dictionary-search">
-                <span class="dictionary-search__label">Pesquisar regra ativa</span>
+                <span class="dictionary-search__label">Search active rule</span>
                 <input
                   id="dictionary-search"
                   type="search"
-                  placeholder="Digite uma palavra da entrada ou da saída"
+                  placeholder="Type a word from the input or output"
                   autocomplete="off"
                 />
               </label>

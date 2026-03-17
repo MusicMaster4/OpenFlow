@@ -4,12 +4,12 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $pythonExe = Join-Path $projectRoot '.venv\Scripts\python.exe'
 
 if (-not (Test-Path $pythonExe)) {
-  throw "Python virtualenv nao encontrado em .venv. Rode 'python -m venv .venv' e instale as dependencias antes do build."
+  throw "Python virtualenv not found in .venv. Run 'python -m venv .venv' and install dependencies before building."
 }
 
 $pyInstallerCheck = & $pythonExe -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
 if ($LASTEXITCODE -ne 0) {
-  throw "PyInstaller nao encontrado na .venv. Rode '.\\.venv\\Scripts\\python.exe -m pip install pyinstaller' antes do build."
+  throw "PyInstaller not found in .venv. Run '.\\.venv\\Scripts\\python.exe -m pip install pyinstaller' before building."
 }
 
 $distPath = Join-Path $projectRoot 'build\python-dist'
@@ -64,7 +64,7 @@ foreach ($module in $optionalCollectModules) {
   'python\dictation_service.py'
 
 if ($LASTEXITCODE -ne 0) {
-  throw 'Falha ao gerar dictation_service.exe'
+  throw 'Failed to build dictation_service.exe'
 }
 
 & $pythonExe @commonArgs `
@@ -73,7 +73,7 @@ if ($LASTEXITCODE -ne 0) {
   'python\hotkey_listener.py'
 
 if ($LASTEXITCODE -ne 0) {
-  throw 'Falha ao gerar hotkey_listener.exe'
+  throw 'Failed to build hotkey_listener.exe'
 }
 
-Write-Host "Workers Python gerados em $distPath"
+Write-Host "Python workers built in $distPath"

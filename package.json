@@ -1,8 +1,8 @@
 {
-  "name": "megafala",
-  "productName": "MegaFala",
+  "name": "openflow",
+  "productName": "OpenFlow",
   "version": "0.1.0",
-  "description": "Windows desktop dictation app MegaFala using Electron and Faster-Whisper.",
+  "description": "Cross-platform desktop dictation app OpenFlow using Electron and Faster-Whisper.",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
@@ -14,8 +14,8 @@
     "dist:mac:arm64": "npm run build:python && electron-builder --mac dmg zip --arm64 --publish never"
   },
   "build": {
-    "appId": "com.megafala.app",
-    "productName": "MegaFala",
+    "appId": "com.openflow.app",
+    "productName": "OpenFlow",
     "asar": true,
     "files": [
       "src/**/*",
@@ -52,15 +52,15 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "src/assets/megaf.ico"
+      "icon": "src/assets/openflow.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "installerIcon": "src/assets/megaf.ico",
-      "uninstallerIcon": "src/assets/megaf.ico"
+      "installerIcon": "src/assets/openflow.ico",
+      "uninstallerIcon": "src/assets/openflow.ico"
     },
     "mac": {
       "target": [
@@ -68,14 +68,14 @@
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "icon": "src/assets/megaf.icns",
+      "icon": "src/assets/openflow.icns",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "MegaFala needs microphone access to capture your voice.",
-        "NSAppleEventsUsageDescription": "MegaFala needs permission to paste transcriptions into the active app."
+        "NSMicrophoneUsageDescription": "OpenFlow needs microphone access to capture your voice.",
+        "NSAppleEventsUsageDescription": "OpenFlow needs permission to paste transcriptions into the active app."
       }
     }
   },
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12"

@@ -235,7 +235,7 @@ def main() -> int:
     try:
         listener.start()
     except Exception as error:
-        listener.emit("error", {"message": f"Falha ao registrar o atalho global: {error}"})
+        listener.emit("error", {"message": f"Failed to register the global shortcut: {error}"})
         return 1
 
     def stdin_loop() -> None:
@@ -247,7 +247,7 @@ def main() -> int:
             try:
                 command = json.loads(line)
             except json.JSONDecodeError:
-                listener.emit("error", {"message": "Comando JSON invalido recebido pelo listener."})
+            listener.emit("error", {"message": "Listener received an invalid JSON command."})
                 continue
 
             if command.get("type") == "shutdown":

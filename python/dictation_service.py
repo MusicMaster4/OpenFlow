@@ -104,7 +104,7 @@ from faster_whisper.tokenizer import _LANGUAGE_CODES
 
 load_dotenv()
 
-DEFAULT_ALLOWED_LANGUAGES = ("pt", "en")
+DEFAULT_ALLOWED_LANGUAGES = ("en",)
 SUPPORTED_LANGUAGES = tuple(dict.fromkeys(_LANGUAGE_CODES))
 
 
@@ -160,7 +160,7 @@ class DictationService:
         self.requested_device = self._resolve_requested_device()
         self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE")
         self.cpu_threads = self._resolve_cpu_threads()
-        self.allowed_languages = normalize_languages(os.getenv("ALLOWED_LANGUAGES", "pt,en"))
+        self.allowed_languages = normalize_languages(os.getenv("ALLOWED_LANGUAGES", "en"))
         self.stop_event = threading.Event()
         self.audio_queue: queue.Queue[bytes] = queue.Queue()
         self.segment_queue: queue.Queue[Optional[tuple[int, np.ndarray]]] = queue.Queue()
@@ -198,8 +198,8 @@ class DictationService:
                 raise
 
             self.device_note = (
-                "GPU detectada, mas o runtime CUDA/cuBLAS compativel com o CTranslate2 nao esta disponivel. "
-                "Usando CPU automaticamente."
+                "GPU detected, but a CUDA/cuBLAS runtime compatible with CTranslate2 is not available. "
+                "Falling back to CPU automatically."
             )
             self.emit("warning", {"message": self.device_note})
             self.model = self._load_model("cpu", self._resolve_compute_type("cpu"))
@@ -248,7 +248,7 @@ class DictationService:
 
     def _resolve_device(self) -> str:
         if sys.platform == "darwin":
-            self.device_note = "macOS usa CPU local para transcricao."
+            self.device_note = "macOS uses local CPU transcription."
             return "cpu"
 
         if self.requested_device in {"cpu", "cuda"}:
@@ -261,12 +261,12 @@ class DictationService:
 
         if cuda_count > 0:
             if REGISTERED_CUDA_DIRS:
-                self.device_note = f"GPU NVIDIA detectada ({cuda_count}), backend CUDA preparado."
+                self.device_note = f"NVIDIA GPU detected ({cuda_count}); CUDA backend is ready."
             else:
-                self.device_note = f"GPU NVIDIA detectada ({cuda_count}), tentando backend CUDA."
+                self.device_note = f"NVIDIA GPU detected ({cuda_count}); trying CUDA backend."
             return "cuda"
 
-        self.device_note = "Nenhuma GPU CUDA utilizavel foi detectada. Usando CPU."
+        self.device_note = "No usable CUDA GPU was detected. Using CPU."
         return "cpu"
 
     def _resolve_compute_type(self, device: str) -> str:
@@ -424,7 +424,7 @@ class DictationService:
         self.emit(
             "warning",
             {
-                "message": f"Idiomas ativos: {', '.join(language.upper() for language in self.allowed_languages)}.",
+                "message": f"Active languages: {', '.join(language.upper() for language in self.allowed_languages)}.",
             },
         )
 
@@ -562,11 +562,11 @@ class DictationService:
                     self.emit(
                         "warning",
                         {
-                            "message": "Backend CUDA falhou durante a transcricao. Recarregando o modelo em CPU automaticamente.",
+                            "message": "CUDA backend failed during transcription. Reloading the model on CPU automatically.",
                         },
                     )
                     self.model = self._load_model("cpu", self._resolve_compute_type("cpu"))
-                    self.device_note = "GPU indisponivel em runtime. Transcricao continuara em CPU."
+                    self.device_note = "GPU became unavailable at runtime. Transcription will continue on CPU."
                     segments, info = self._transcribe_segment(segment, selected_language)
 
                 parts = []
@@ -600,7 +600,7 @@ class DictationService:
                         },
                     )
             except Exception as error:
-                self.emit("error", {"message": f"Erro na transcricao: {error}"})
+                self.emit("error", {"message": f"Transcription error: {error}"})
             finally:
                 if self.current_session_id == session_id and not self.listening:
                     self.current_session_id = None
@@ -635,7 +635,7 @@ def main() -> int:
     try:
         service.boot()
     except Exception as error:
-        service.emit("error", {"message": f"Falha ao carregar Faster-Whisper: {error}"})
+        service.emit("error", {"message": f"Failed to load Faster-Whisper: {error}"})
         return 1
 
     for raw_line in sys.stdin:
@@ -646,7 +646,7 @@ def main() -> int:
         try:
             command = json.loads(line)
         except json.JSONDecodeError:
-            service.emit("error", {"message": "Comando JSON invalido recebido pelo worker."})
+            service.emit("error", {"message": "Worker received an invalid JSON command."})
             continue
 
         command_type = command.get("type")
@@ -665,7 +665,7 @@ def main() -> int:
                 service.shutdown()
                 break
         except Exception as error:
-            service.emit("error", {"message": f"Falha ao executar '{command_type}': {error}"})
+            service.emit("error", {"message": f"Failed to execute '{command_type}': {error}"})
 
     service.shutdown()
     return 0

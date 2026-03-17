@@ -373,12 +373,12 @@ function handleFeedback(feedback) {
 
 function initTheme() {
   const syncTheme = () => {
-    const savedTheme = localStorage.getItem('megafala-theme') || 'dark';
+    const savedTheme = localStorage.getItem('openflow-theme') || 'dark';
     if (document.documentElement.getAttribute('data-theme') !== savedTheme) {
       document.documentElement.setAttribute('data-theme', savedTheme);
     }
 
-    const savedLanguage = localStorage.getItem('megafala-interface-language') || 'en';
+    const savedLanguage = localStorage.getItem('openflow-interface-language') || 'en';
     document.documentElement.lang = savedLanguage;
     document.documentElement.dir = savedLanguage === 'ar' ? 'rtl' : 'ltr';
     overlayEls.readyLabel.textContent = overlayReadyLabels[savedLanguage] || overlayReadyLabels.en;

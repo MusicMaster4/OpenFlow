@@ -2,7 +2,7 @@ const SUPPORTED_INTERFACE_LANGUAGES = [
   'en', 'pt-BR', 'es', 'fr', 'de', 'it', 'nl', 'el', 'ru', 'zh-CN', 'ja', 'ko', 'ar', 'hi', 'tr',
 ];
 
-const DEFAULT_DETECTION_LANGUAGES = ['pt', 'en'];
+const DEFAULT_DETECTION_LANGUAGES = ['en'];
 const DICTIONARY_LANGUAGE_CODES = ['pt', 'en'];
 
 const TRANSLATIONS = {
@@ -36,11 +36,11 @@ const TRANSLATIONS = {
     showOverlay: 'Show global overlay',
     showOverlayCopy: 'Display the recording indicator above any app.',
     startWithComputer: 'Start with the computer',
-    startWithComputerCopy: 'Launch MegaFala in the background when you sign in.',
+    startWithComputerCopy: 'Launch OpenFlow in the background when you sign in.',
     soundEffects: 'Sound feedback',
     soundEffectsCopy: 'Play sounds on load, start, stop, cancel, and hands-free activation.',
     detectionLanguages: 'Detection languages',
-    detectionLanguagesCopy: 'Portuguese and English are enabled by default. Expand to add more languages.',
+    detectionLanguagesCopy: 'English is enabled by default. Expand to add more languages.',
     searchDetectionLanguage: 'Search language',
     detectionLanguageSearchPlaceholder: 'Search detection languages...',
     showMoreLanguages: 'Show more languages',
@@ -57,10 +57,10 @@ const TRANSLATIONS = {
     noNotes: 'No notes.',
     dictionaryCopy: 'Replace terms automatically in the final text.',
     dictionarySources: 'Rule inputs',
-    dictionarySourcesPlaceholder: 'One variation per line\nmega fala\nmegafala',
+    dictionarySourcesPlaceholder: 'One variation per line\nopen flow\nopenflow',
     dictionarySourcesHint: 'Add as many variations as needed. Use one entry per line.',
     dictionaryTarget: 'Final replacement',
-    dictionaryTargetPlaceholder: 'Example: MegaFala',
+    dictionaryTargetPlaceholder: 'Example: OpenFlow',
     activeLanguages: 'Active languages',
     cancelEditing: 'Cancel editing',
     addRule: 'Add rule',
@@ -118,7 +118,7 @@ const TRANSLATIONS = {
     showOverlay: 'Exibir overlay global',
     showOverlayCopy: 'Mostra o indicador de gravação acima de qualquer app.',
     startWithComputer: 'Iniciar com o computador',
-    startWithComputerCopy: 'Abre o MegaFala em segundo plano ao entrar no sistema.',
+    startWithComputerCopy: 'Abre o OpenFlow em segundo plano ao entrar no sistema.',
     soundEffects: 'Sons de feedback',
     soundEffectsCopy: 'Toca sons ao carregar, iniciar, encerrar, cancelar e ativar hands-free.',
     detectionLanguages: 'Idiomas de detecção',
@@ -139,10 +139,10 @@ const TRANSLATIONS = {
     noNotes: 'Sem observações.',
     dictionaryCopy: 'Troque termos automaticamente no texto final.',
     dictionarySources: 'Entradas da regra',
-    dictionarySourcesPlaceholder: 'Uma variação por linha\nmega fala\nmegafala',
+    dictionarySourcesPlaceholder: 'Uma variação por linha\nopen flow\nopenflow',
     dictionarySourcesHint: 'Adicione quantas variações quiser. Use uma entrada por linha.',
     dictionaryTarget: 'Substituição final',
-    dictionaryTargetPlaceholder: 'Ex.: MegaFala',
+    dictionaryTargetPlaceholder: 'Ex.: OpenFlow',
     activeLanguages: 'Idiomas ativos',
     cancelEditing: 'Cancelar edição',
     addRule: 'Adicionar regra',
@@ -493,7 +493,7 @@ function renderStatusPanel(state) {
 }
 
 function initTheme() {
-  const savedTheme = localStorage.getItem('megafala-theme') || 'dark';
+const savedTheme = localStorage.getItem('openflow-theme') || 'dark';
   document.documentElement.setAttribute('data-theme', savedTheme);
   for (const radio of els.themeRadios) {
     if (radio.value === savedTheme) {
@@ -502,7 +502,7 @@ function initTheme() {
     radio.addEventListener('change', (event) => {
       if (event.target.checked) {
         document.documentElement.setAttribute('data-theme', event.target.value);
-        localStorage.setItem('megafala-theme', event.target.value);
+  localStorage.setItem('openflow-theme', event.target.value);
       }
     });
   }
@@ -511,7 +511,7 @@ function initTheme() {
 function applyTranslations() {
   document.documentElement.lang = locale();
   document.documentElement.dir = locale() === 'ar' ? 'rtl' : 'ltr';
-  localStorage.setItem('megafala-interface-language', locale());
+  localStorage.setItem('openflow-interface-language', locale());
 
   for (const element of els.translatable) {
     element.textContent = t(element.dataset.i18n);

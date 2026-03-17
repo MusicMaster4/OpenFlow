@@ -70,15 +70,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP_PATH="$(find dist -maxdepth 2 -name 'MegaFala.app' -print -quit)"
+          APP_PATH="$(find dist -maxdepth 2 -name 'OpenFlow.app' -print -quit)"
           if [[ -z "$APP_PATH" ]]; then
-            echo "MegaFala.app nao encontrado em dist/"
+            echo "OpenFlow.app not found in dist/"
             exit 1
           fi
 
           EXPECTED_ARCH="${{ matrix.pyinstaller_arch }}"
           BINARIES=(
-            "$APP_PATH/Contents/MacOS/MegaFala"
+            "$APP_PATH/Contents/MacOS/OpenFlow"
             "$APP_PATH/Contents/Resources/bin/dictation_service/dictation_service"
             "$APP_PATH/Contents/Resources/bin/hotkey_listener/hotkey_listener"
           )
@@ -87,7 +87,7 @@ jobs:
             ACTUAL_ARCHES="$(lipo -archs "$BINARY")"
             echo "$BINARY -> $ACTUAL_ARCHES"
             if [[ "$ACTUAL_ARCHES" != *"$EXPECTED_ARCH"* ]]; then
-              echo "Arquitetura inesperada para $BINARY"
+              echo "Unexpected architecture for $BINARY"
               exit 1
             fi
           done
@@ -101,7 +101,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: megafala-macos-${{ matrix.electron_arch }}
+          name: openflow-macos-${{ matrix.electron_arch }}
           path: |
             dist/*.dmg
             dist/*.zip

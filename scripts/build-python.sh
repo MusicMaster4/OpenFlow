@@ -10,7 +10,7 @@ else
 fi
 
 if ! "$PYTHON_EXE" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"; then
-  echo "PyInstaller nao encontrado. Rode 'python -m pip install pyinstaller' antes do build." >&2
+  echo "PyInstaller not found. Run 'python -m pip install pyinstaller' before building." >&2
   exit 1
 fi
 
@@ -68,4 +68,4 @@ fi
   --collect-submodules pynput \
   python/hotkey_listener.py
 
-echo "Workers Python gerados em $DIST_PATH"
+echo "Python workers built in $DIST_PATH"

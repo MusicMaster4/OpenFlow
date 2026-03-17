@@ -9,7 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace MegaFala.Audio
+namespace OpenFlow.Audio
 {
     [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -421,18 +421,18 @@ namespace MegaFala.Audio
 }
 "@
 
-if (-not ([System.Management.Automation.PSTypeName]'MegaFala.Audio.SessionVolumeController').Type) {
+if (-not ([System.Management.Automation.PSTypeName]'OpenFlow.Audio.SessionVolumeController').Type) {
     Add-Type -TypeDefinition $coreAudioType -Language CSharp
 }
 
-$snapshotStatePath = Join-Path ([System.IO.Path]::GetTempPath()) 'MegaFala.audio-duck-state.json'
+$snapshotStatePath = Join-Path ([System.IO.Path]::GetTempPath()) 'OpenFlow.audio-duck-state.json'
 
 $state = @{
     CaptureActive = $false
     Running = $true
     ExcludedPids = @()
     DuckVolume = 0.0
-    Snapshots = New-Object System.Collections.Generic.List[MegaFala.Audio.AudioSessionSnapshot]
+  Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
 }
 
 function Emit-Event {
@@ -450,7 +450,7 @@ function Emit-Event {
 
 function Save-SnapshotState {
     param(
-        [System.Collections.Generic.List[MegaFala.Audio.AudioSessionSnapshot]]$Snapshots
+  [System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]]$Snapshots
     )
 
     $payload = @($Snapshots | ForEach-Object {
@@ -476,7 +476,7 @@ function Load-SnapshotState {
 
     $items = @($raw | ConvertFrom-Json)
     return @($items | ForEach-Object {
-        $snapshot = New-Object MegaFala.Audio.AudioSessionSnapshot
+  $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
         $snapshot.InstanceId = [string]$_.InstanceId
         $snapshot.Volume = [float]$_.Volume
         $snapshot.Muted = [bool]$_.Muted
@@ -497,20 +497,20 @@ function Restore-StaleSnapshotState {
         return $false
     }
 
-    $typedSnapshots = New-Object System.Collections.Generic.List[MegaFala.Audio.AudioSessionSnapshot]
+  $typedSnapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
     foreach ($snapshot in $snapshots) {
         [void]$typedSnapshots.Add($snapshot)
     }
 
-    [MegaFala.Audio.SessionVolumeController]::Restore($typedSnapshots)
+  [OpenFlow.Audio.SessionVolumeController]::Restore($typedSnapshots)
     Clear-SnapshotState
     return $true
 }
 
 function Recover-AudioOutput {
     $restoredSnapshot = Restore-StaleSnapshotState
-    $recoveredSessions = [MegaFala.Audio.SessionVolumeController]::RecoverSilentSessions([float]0.35)
-    [MegaFala.Audio.SessionVolumeController]::EnsureDefaultEndpointAudible([float]0.35)
+  $recoveredSessions = [OpenFlow.Audio.SessionVolumeController]::RecoverSilentSessions([float]0.35)
+  [OpenFlow.Audio.SessionVolumeController]::EnsureDefaultEndpointAudible([float]0.35)
 
     return @{
         restored_snapshot = [bool]$restoredSnapshot
@@ -545,8 +545,8 @@ function Start-CaptureDuck {
         return
     }
 
-    $snapshots = [MegaFala.Audio.SessionVolumeController]::DuckExcept($state.ExcludedPids, $state.DuckVolume)
-    $state.Snapshots = New-Object System.Collections.Generic.List[MegaFala.Audio.AudioSessionSnapshot]
+$snapshots = [OpenFlow.Audio.SessionVolumeController]::DuckExcept($state.ExcludedPids, $state.DuckVolume)
+$state.Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
     foreach ($snapshot in $snapshots) {
         [void]$state.Snapshots.Add($snapshot)
     }
@@ -563,8 +563,8 @@ function Stop-CaptureDuck {
         return
     }
 
-    [MegaFala.Audio.SessionVolumeController]::Restore($state.Snapshots)
-    $state.Snapshots = New-Object System.Collections.Generic.List[MegaFala.Audio.AudioSessionSnapshot]
+[OpenFlow.Audio.SessionVolumeController]::Restore($state.Snapshots)
+$state.Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
     $state.CaptureActive = $false
     Clear-SnapshotState
 }
@@ -592,7 +592,7 @@ try {
         try {
             $command = $line | ConvertFrom-Json
         } catch {
-            Emit-Event -Type 'error' -Payload @{ message = 'Comando JSON invalido recebido pelo controlador de audio.' }
+      Emit-Event -Type 'error' -Payload @{ message = 'Audio controller received an invalid JSON command.' }
             continue
         }
 
@@ -611,7 +611,7 @@ try {
                 $state.Running = $false
             }
             default {
-                Emit-Event -Type 'warning' -Payload @{ message = "Comando desconhecido: $($command.type)" }
+      Emit-Event -Type 'warning' -Payload @{ message = "Unknown command: $($command.type)" }
             }
         }
     }
