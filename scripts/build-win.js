@@ -15,7 +15,13 @@ const distDir = path.join(projectRoot, 'dist');
 const unpackedDir = path.join(distDir, 'win-unpacked');
 const executablePath = path.join(unpackedDir, `${productName}.exe`);
 const iconPath = path.join(projectRoot, 'src', 'assets', 'openflow.ico');
-const rceditBinaryName = process.arch === 'ia32' ? 'rcedit-ia32.exe' : 'rcedit-x64.exe';
+const vendoredRceditPath = path.join(
+  projectRoot,
+  'node_modules',
+  'electron-winstaller',
+  'vendor',
+  'rcedit.exe',
+);
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -32,56 +38,49 @@ function run(command, args) {
   }
 }
 
-function findLatestRceditBinary() {
-  const searchRoots = [];
-  const customCacheDir = process.env.ELECTRON_BUILDER_CACHE;
-  const localAppData = process.env.LOCALAPPDATA;
-
-  if (customCacheDir) {
-    searchRoots.push(customCacheDir);
-  }
-  if (localAppData) {
-    searchRoots.push(path.join(localAppData, 'electron-builder', 'Cache'));
+function resolveRceditPath() {
+  if (fs.existsSync(vendoredRceditPath)) {
+    return vendoredRceditPath;
   }
 
-  const candidates = [];
+  const cacheRoot = process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, 'electron-builder', 'Cache', 'winCodeSign')
+    : null;
 
-  for (const rootDir of searchRoots) {
-    const cacheDir = path.join(rootDir, 'winCodeSign');
-    if (!fs.existsSync(cacheDir)) {
-      continue;
-    }
+  if (!cacheRoot || !fs.existsSync(cacheRoot)) {
+    return null;
+  }
 
-    const stack = [cacheDir];
-    while (stack.length > 0) {
-      const currentDir = stack.pop();
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+  const matches = [];
+  const stack = [cacheRoot];
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
 
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          stack.push(fullPath);
-          continue;
-        }
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+        continue;
+      }
 
-        if (entry.isFile() && entry.name.toLowerCase() === rceditBinaryName.toLowerCase()) {
-          candidates.push({
-            candidate: fullPath,
-            mtimeMs: fs.statSync(fullPath).mtimeMs,
-          });
-        }
+      if (entry.isFile() && entry.name.toLowerCase().startsWith('rcedit') && entry.name.endsWith('.exe')) {
+        matches.push({
+          fullPath,
+          mtimeMs: fs.statSync(fullPath).mtimeMs,
+        });
       }
     }
   }
 
-  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
-
-  return candidates[0]?.candidate || null;
+  matches.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return matches[0]?.fullPath || null;
 }
 
 async function main() {
   fs.rmSync(distDir, { recursive: true, force: true });
 
+  run(process.execPath, [path.join(projectRoot, 'scripts', 'build-icons.js')]);
   run(process.execPath, [path.join(projectRoot, 'scripts', 'build-python.js')]);
 
   run(process.execPath, [
@@ -98,22 +97,23 @@ async function main() {
     process.exit(1);
   }
 
-  const rceditPath = findLatestRceditBinary();
+  const rceditPath = resolveRceditPath();
   if (!rceditPath) {
-    console.warn(`Unable to locate ${rceditBinaryName} in the electron-builder cache. Skipping rcedit metadata patch.`);
-  } else {
-    run(rceditPath, [
-      executablePath,
-      '--set-version-string',
-      'FileDescription',
-      productName,
-      '--set-version-string',
-      'ProductName',
-      productName,
-      '--set-icon',
-      iconPath,
-    ]);
+    console.error('Unable to locate rcedit.exe to stamp the Windows executable icon.');
+    process.exit(1);
   }
+
+  run(rceditPath, [
+    executablePath,
+    '--set-version-string',
+    'FileDescription',
+    productName,
+    '--set-version-string',
+    'ProductName',
+    productName,
+    '--set-icon',
+    iconPath,
+  ]);
 
   run(process.execPath, [
     electronBuilderCli,

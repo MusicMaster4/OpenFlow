@@ -24,7 +24,7 @@ const DEFAULT_LANGUAGES = ['en'];
 const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
-const DEFAULT_LAUNCH_AT_LOGIN = true;
+const DEFAULT_LAUNCH_AT_LOGIN = false;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
@@ -792,10 +792,22 @@ function getDefaultsFromEnv() {
     model: normalizeModel(getDefaultModel()),
     showOverlayBar: DEFAULT_SHOW_OVERLAY_BAR,
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
-    launchAtLogin: DEFAULT_LAUNCH_AT_LOGIN,
+    launchAtLogin: normalizeLaunchAtLoginPreference(DEFAULT_LAUNCH_AT_LOGIN),
     dictionaryEntries: [],
     overlayPosition: null,
   };
+}
+
+function canConfigureLaunchAtLogin() {
+  if (process.platform === 'win32') {
+    return app.isPackaged;
+  }
+
+  return true;
+}
+
+function normalizeLaunchAtLoginPreference(value) {
+  return canConfigureLaunchAtLogin() && value === true;
 }
 
 const defaults = getDefaultsFromEnv();
@@ -1087,10 +1099,11 @@ function normalizePersistedState(payload) {
         typeof preferencesSource.soundEffectsEnabled === 'boolean'
           ? preferencesSource.soundEffectsEnabled
           : defaults.soundEffectsEnabled,
-      launchAtLogin:
+      launchAtLogin: normalizeLaunchAtLoginPreference(
         typeof preferencesSource.launchAtLogin === 'boolean' && !shouldEnableLaunchAtLoginByDefault
           ? preferencesSource.launchAtLogin
           : defaults.launchAtLogin,
+      ),
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
       overlayPosition: defaults.overlayPosition,
     },
@@ -1447,9 +1460,11 @@ function refreshTrayMenu() {
 }
 
 function syncLaunchAtLoginSetting() {
+  const shouldOpenAtLogin = normalizeLaunchAtLoginPreference(state.launchAtLogin);
+
   app.setLoginItemSettings({
-    openAtLogin: state.launchAtLogin,
-    openAsHidden: state.launchAtLogin,
+    openAtLogin: shouldOpenAtLogin,
+    openAsHidden: shouldOpenAtLogin,
     args: ['--background'],
   });
 }
@@ -2884,8 +2899,9 @@ async function applySettings(patch) {
     typeof patch.soundEffectsEnabled === 'boolean'
       ? patch.soundEffectsEnabled
       : state.soundEffectsEnabled;
-  const nextLaunchAtLogin =
-    typeof patch.launchAtLogin === 'boolean' ? patch.launchAtLogin : state.launchAtLogin;
+  const nextLaunchAtLogin = normalizeLaunchAtLoginPreference(
+    typeof patch.launchAtLogin === 'boolean' ? patch.launchAtLogin : state.launchAtLogin,
+  );
   const nextDictionaryEntries = Object.prototype.hasOwnProperty.call(patch, 'dictionaryEntries')
     ? normalizeDictionaryEntries(patch.dictionaryEntries)
     : state.dictionaryEntries;
