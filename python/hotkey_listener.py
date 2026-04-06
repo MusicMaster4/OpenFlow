@@ -9,6 +9,26 @@ from pynput import keyboard
 
 load_dotenv()
 
+VK_SPACE = 0x20
+VK_ESCAPE = 0x1B
+WIN32_KEYDOWN_MESSAGES = {0x0100, 0x0104}
+WIN32_KEYUP_MESSAGES = {0x0101, 0x0105}
+DARWIN_SPACE_KEYCODE = 49
+DARWIN_ESCAPE_KEYCODE = 53
+
+if sys.platform == "darwin":
+    from Quartz import (
+        CGEventGetIntegerValueField,
+        kCGEventKeyDown,
+        kCGEventKeyUp,
+        kCGKeyboardEventKeycode,
+    )
+else:
+    CGEventGetIntegerValueField = None
+    kCGEventKeyDown = None
+    kCGEventKeyUp = None
+    kCGKeyboardEventKeycode = None
+
 
 def _configure_stdio() -> None:
     for stream_name in ("stdin", "stdout", "stderr"):
@@ -57,6 +77,9 @@ class HotkeyListener:
         self.state_lock = threading.Lock()
         self.listener = None
         self.pressed_tokens: set[str] = set()
+        self.suppressed_action_tokens: set[str] = set()
+        self.consume_space = False
+        self.consume_escape = False
         self.hotkey_tokens = self._parse_shortcut(self.hotkey)
         self.paste_last_tokens = self._parse_shortcut(self.paste_last_hotkey)
         if not self.hotkey_tokens:
@@ -68,7 +91,17 @@ class HotkeyListener:
         print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
 
     def start(self) -> None:
-        self.listener = keyboard.Listener(on_press=self._handle_press, on_release=self._handle_release)
+        listener_kwargs = {
+            "on_press": self._handle_press,
+            "on_release": self._handle_release,
+        }
+
+        if sys.platform == "win32":
+            listener_kwargs["win32_event_filter"] = self._win32_event_filter
+        elif sys.platform == "darwin":
+            listener_kwargs["darwin_intercept"] = self._darwin_intercept
+
+        self.listener = keyboard.Listener(**listener_kwargs)
         self.listener.start()
         self.emit(
             "ready",
@@ -89,6 +122,7 @@ class HotkeyListener:
         self.paste_last_pending_emit = False
         self.active_mode = "hold"
         self.pressed_tokens.clear()
+        self.suppressed_action_tokens.clear()
         self.listener = None
 
     @staticmethod
@@ -173,13 +207,12 @@ class HotkeyListener:
         return tokens
 
     def _handle_press(self, key) -> None:
-        self._handle_key_event(key, is_press=True)
+        self._handle_key_tokens(self._key_to_tokens(key), is_press=True)
 
     def _handle_release(self, key) -> None:
-        self._handle_key_event(key, is_press=False)
+        self._handle_key_tokens(self._key_to_tokens(key), is_press=False)
 
-    def _handle_key_event(self, key, is_press: bool) -> None:
-        key_tokens = self._key_to_tokens(key)
+    def _handle_key_tokens(self, key_tokens: set[str], is_press: bool) -> None:
         if not key_tokens:
             return
 
@@ -228,6 +261,99 @@ class HotkeyListener:
                 self.active_mode = "hold"
                 self.emit("hotkey-released", {"shortcut": self.hotkey, "mode": released_mode})
 
+    def _hotkey_space_active(self, *, include_current_press: bool = False) -> bool:
+        active_tokens = set(self.pressed_tokens)
+        if include_current_press:
+            active_tokens.add("space")
+        return "space" in self.hotkey_tokens and self.hotkey_tokens.issubset(active_tokens)
+
+    def _should_consume_action_token(self, token: str, *, is_press: bool) -> bool:
+        if token in self.suppressed_action_tokens:
+            if is_press:
+                return True
+
+            self.suppressed_action_tokens.discard(token)
+            return True
+
+        if token == "space":
+            wants_consume = (
+                self.consume_space
+                or self.is_pressed
+                or self._hotkey_space_active(include_current_press=is_press)
+            )
+        elif token == "escape":
+            wants_consume = self.consume_escape
+        else:
+            return False
+
+        if is_press:
+            if wants_consume:
+                self.suppressed_action_tokens.add(token)
+                return True
+            return False
+
+        return False
+
+    def _win32_event_filter(self, msg, data) -> bool:
+        key_token = None
+        is_press = None
+
+        if data.vkCode == VK_SPACE:
+            key_token = "space"
+        elif data.vkCode == VK_ESCAPE:
+            key_token = "escape"
+
+        if key_token is None:
+            return True
+
+        if msg in WIN32_KEYDOWN_MESSAGES:
+            is_press = True
+        elif msg in WIN32_KEYUP_MESSAGES:
+            is_press = False
+        else:
+            return True
+
+        with self.state_lock:
+            should_consume = self._should_consume_action_token(key_token, is_press=is_press)
+
+        if not should_consume:
+            return True
+
+        self._handle_key_tokens({key_token}, is_press=is_press)
+        if self.listener is not None:
+            self.listener.suppress_event()
+        return False
+
+    def _darwin_intercept(self, event_type, event):
+        keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+        key_token = None
+
+        if keycode == DARWIN_SPACE_KEYCODE:
+            key_token = "space"
+        elif keycode == DARWIN_ESCAPE_KEYCODE:
+            key_token = "escape"
+
+        if key_token is None:
+            return event
+
+        if event_type == kCGEventKeyDown:
+            is_press = True
+        elif event_type == kCGEventKeyUp:
+            is_press = False
+        else:
+            return event
+
+        with self.state_lock:
+            should_consume = self._should_consume_action_token(key_token, is_press=is_press)
+
+        return None if should_consume else event
+
+    def set_action_key_handling(self, payload: dict | None = None) -> None:
+        data = payload or {}
+        with self.state_lock:
+            self.consume_space = data.get("suppress_space") is True
+            self.consume_escape = data.get("suppress_escape") is True
+
 
 def main() -> int:
     listener = HotkeyListener()
@@ -253,6 +379,8 @@ def main() -> int:
             if command.get("type") == "shutdown":
                 listener.shutdown()
                 break
+            if command.get("type") == "set-action-key-handling":
+                listener.set_action_key_handling(command.get("payload"))
 
     reader_thread = threading.Thread(target=stdin_loop, daemon=True)
     reader_thread.start()

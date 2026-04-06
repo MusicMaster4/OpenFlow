@@ -264,6 +264,10 @@ let captureMuteDepth = 0;
 let suppressStartSoundUntil = 0;
 let suppressStartRequestsUntil = 0;
 let ignoreNextHotkeyRelease = false;
+let lastHotkeyActionHandling = {
+  suppressEscape: null,
+  suppressSpace: null,
+};
 let isQuitting = false;
 let shouldStartHiddenOnLaunch = process.argv.some((arg) => arg === '--background');
 
@@ -1340,6 +1344,7 @@ function snapshotState() {
 
 function setState(patch) {
   Object.assign(state, patch);
+  syncHotkeyActionHandling();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('app-state', snapshotState());
@@ -1524,6 +1529,38 @@ function sendHotkeyCommand(type, payload = {}) {
   }
 
   hotkeyProcess.stdin.write(`${JSON.stringify({ type, payload })}\n`);
+}
+
+function getHotkeyActionHandlingState() {
+  const hasLiveCapture =
+    state.captureMode !== null || state.pendingStartMode !== null || state.listening;
+  const canConsumeEscape =
+    hasLiveCapture ||
+    state.dictationSessionId !== null ||
+    state.pendingPaste ||
+    state.phase === 'transcribing';
+
+  return {
+    suppressEscape: canConsumeEscape,
+    suppressSpace: hasLiveCapture,
+  };
+}
+
+function syncHotkeyActionHandling(force = false) {
+  const next = getHotkeyActionHandlingState();
+  const unchanged =
+    next.suppressEscape === lastHotkeyActionHandling.suppressEscape &&
+    next.suppressSpace === lastHotkeyActionHandling.suppressSpace;
+
+  if (!force && unchanged) {
+    return;
+  }
+
+  lastHotkeyActionHandling = next;
+  sendHotkeyCommand('set-action-key-handling', {
+    suppress_escape: next.suppressEscape,
+    suppress_space: next.suppressSpace,
+  });
 }
 
 function normalizeTextForPaste(text) {
@@ -2735,11 +2772,6 @@ function bootDictationService() {
 }
 
 function bootHotkeyListener() {
-  if (process.platform === 'darwin') {
-    registerMainShortcut();
-    return;
-  }
-
   if (hotkeyProcess && !hotkeyProcess.killed) {
     return;
   }
@@ -2755,6 +2787,11 @@ function bootHotkeyListener() {
 
   configureTextPipes(localProcess);
   hotkeyProcess = localProcess;
+  lastHotkeyActionHandling = {
+    suppressEscape: null,
+    suppressSpace: null,
+  };
+  syncHotkeyActionHandling(true);
   trackChildProcess('hotkey_listener', localProcess);
   hotkeyReader = attachJsonReader(
     localProcess,
@@ -2807,6 +2844,10 @@ function bootHotkeyListener() {
 
     untrackChildProcess('hotkey_listener', localProcess.pid);
     hotkeyProcess = null;
+    lastHotkeyActionHandling = {
+      suppressEscape: null,
+      suppressSpace: null,
+    };
     setState({
       hotkeyOnline: false,
       error: code === 0 ? state.error : `Listener de atalho encerrado com codigo ${code}.`,
