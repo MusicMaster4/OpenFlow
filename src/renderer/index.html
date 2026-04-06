@@ -76,7 +76,7 @@
             <div class="section-head">
               <div>
                 <h2 data-i18n="latestTranscriptions">Latest transcriptions</h2>
-                <p class="section-head__copy" data-i18n="historyCopy">
+                <p class="section-head__copy" id="history-copy" data-i18n="historyCopyLimited">
                   Local history for the latest 100 messages.
                 </p>
               </div>
@@ -206,6 +206,29 @@
               </div>
               <span class="toggle-switch">
                 <input id="sound-effects-enabled" type="checkbox" />
+                <span></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2 data-i18n="transcriptionHistory">Transcription history</h2>
+                <p class="section-head__copy" id="transcription-history-copy" data-i18n="transcriptionHistoryCopy">
+                  Control whether the app stores only the latest local messages or every transcription.
+                </p>
+              </div>
+            </div>
+            <label class="toggle-card" for="keep-all-transcriptions">
+              <div>
+                <strong data-i18n="keepAllTranscriptions">Keep all transcriptions</strong>
+                <p id="keep-all-transcriptions-copy" data-i18n="keepAllTranscriptionsCopy">
+                  Save every local transcription without the 100-message limit.
+                </p>
+              </div>
+              <span class="toggle-switch">
+                <input id="keep-all-transcriptions" type="checkbox" />
                 <span></span>
               </span>
             </label>

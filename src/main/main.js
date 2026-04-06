@@ -25,6 +25,8 @@ const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = false;
+const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
+const LOCAL_HISTORY_LIMIT = 100;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
@@ -207,6 +209,8 @@ const MAIN_TRANSLATIONS = {
     transcriptionBusy: 'Wait for the current transcription to finish before starting a new dictation.',
     launchAtLoginOn: 'Start with the computer enabled.',
     launchAtLoginOff: 'Start with the computer disabled.',
+    keepAllTranscriptionsOn: 'Saving all local transcriptions.',
+    keepAllTranscriptionsOff: `Saving only the latest ${LOCAL_HISTORY_LIMIT} local messages.`,
     trayOpenApp: 'Open app',
     trayHideApp: 'Hide window',
     trayQuit: 'Quit',
@@ -233,6 +237,8 @@ const MAIN_TRANSLATIONS = {
       'Aguarde a transcricao atual terminar antes de iniciar um novo ditado.',
     launchAtLoginOn: 'Inicializacao com o computador ativada.',
     launchAtLoginOff: 'Inicializacao com o computador desativada.',
+    keepAllTranscriptionsOn: 'Salvando todas as transcricoes locais.',
+    keepAllTranscriptionsOff: `Salvando apenas as ultimas ${LOCAL_HISTORY_LIMIT} mensagens locais.`,
     trayOpenApp: 'Abrir OpenFlow',
     trayHideApp: 'Ocultar janela',
     trayQuit: 'Fechar',
@@ -502,6 +508,11 @@ function normalizeHistory(history) {
       };
     })
     .filter(Boolean);
+}
+
+function applyHistoryRetention(history, keepAllTranscriptions = DEFAULT_KEEP_ALL_TRANSCRIPTIONS) {
+  const list = Array.isArray(history) ? history : [];
+  return keepAllTranscriptions ? list : list.slice(0, LOCAL_HISTORY_LIMIT);
 }
 
 function normalizeDictionaryEntry(entry) {
@@ -797,6 +808,7 @@ function getDefaultsFromEnv() {
     showOverlayBar: DEFAULT_SHOW_OVERLAY_BAR,
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
     launchAtLogin: normalizeLaunchAtLoginPreference(DEFAULT_LAUNCH_AT_LOGIN),
+    keepAllTranscriptions: DEFAULT_KEEP_ALL_TRANSCRIPTIONS,
     dictionaryEntries: [],
     overlayPosition: null,
   };
@@ -847,6 +859,7 @@ const state = {
   showOverlayBar: defaults.showOverlayBar,
   soundEffectsEnabled: defaults.soundEffectsEnabled,
   launchAtLogin: defaults.launchAtLogin,
+  keepAllTranscriptions: defaults.keepAllTranscriptions,
   dictionaryEntries: defaults.dictionaryEntries,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
@@ -1065,6 +1078,7 @@ function createEmptyPersistedState() {
       showOverlayBar: defaults.showOverlayBar,
       soundEffectsEnabled: defaults.soundEffectsEnabled,
       launchAtLogin: defaults.launchAtLogin,
+      keepAllTranscriptions: defaults.keepAllTranscriptions,
       dictionaryEntries: defaults.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
@@ -1088,6 +1102,10 @@ function normalizePersistedState(payload) {
   const preferencesSource =
     source.preferences && typeof source.preferences === 'object' ? source.preferences : source;
   const shouldEnableLaunchAtLoginByDefault = Number(source.version) < PERSISTENCE_VERSION;
+  const keepAllTranscriptions =
+    typeof preferencesSource.keepAllTranscriptions === 'boolean'
+      ? preferencesSource.keepAllTranscriptions
+      : defaults.keepAllTranscriptions;
 
   return {
     version: PERSISTENCE_VERSION,
@@ -1108,11 +1126,12 @@ function normalizePersistedState(payload) {
           ? preferencesSource.launchAtLogin
           : defaults.launchAtLogin,
       ),
+      keepAllTranscriptions,
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
       overlayPosition: defaults.overlayPosition,
     },
     modelStats: normalizeStats(source.modelStats),
-    history: normalizeHistory(source.history),
+    history: applyHistoryRetention(normalizeHistory(source.history), keepAllTranscriptions),
     usageStats: normalizeUsageStats(source.usageStats),
   };
 }
@@ -1125,7 +1144,11 @@ function writeJsonFile(filePath, payload) {
 function loadPersistentState() {
   const persisted = readJsonFile(getSettingsPath());
   if (persisted) {
-    return normalizePersistedState(persisted);
+    const normalized = normalizePersistedState(persisted);
+    if (JSON.stringify(persisted) !== JSON.stringify(normalized)) {
+      writeJsonFile(getSettingsPath(), normalized);
+    }
+    return normalized;
   }
 
   const legacy = readJsonFile(getLegacySettingsPath());
@@ -1148,11 +1171,12 @@ function savePersistentState() {
       showOverlayBar: state.showOverlayBar,
       soundEffectsEnabled: state.soundEffectsEnabled,
       launchAtLogin: state.launchAtLogin,
+      keepAllTranscriptions: state.keepAllTranscriptions,
       dictionaryEntries: state.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
     modelStats: state.modelStats,
-    history: state.history,
+    history: applyHistoryRetention(state.history, state.keepAllTranscriptions),
     usageStats: state.usageStats,
   };
 
@@ -1338,6 +1362,7 @@ function snapshotState() {
     ...state,
     platform: process.platform,
     historyTotal: state.history.length,
+    historyLimit: LOCAL_HISTORY_LIMIT,
     usageSummary: buildUsageSummary(state.usageStats),
   };
 }
@@ -2281,7 +2306,7 @@ async function handleServiceEvent(event) {
         wordCount: countWords(resolvedText),
         timestamp: new Date().toISOString(),
       };
-      const history = [entry, ...state.history];
+      const history = applyHistoryRetention([entry, ...state.history], state.keepAllTranscriptions);
       const usageStats = recordUsage(state.usageStats, entry);
 
       setState({
@@ -2943,9 +2968,14 @@ async function applySettings(patch) {
   const nextLaunchAtLogin = normalizeLaunchAtLoginPreference(
     typeof patch.launchAtLogin === 'boolean' ? patch.launchAtLogin : state.launchAtLogin,
   );
+  const nextKeepAllTranscriptions =
+    typeof patch.keepAllTranscriptions === 'boolean'
+      ? patch.keepAllTranscriptions
+      : state.keepAllTranscriptions;
   const nextDictionaryEntries = Object.prototype.hasOwnProperty.call(patch, 'dictionaryEntries')
     ? normalizeDictionaryEntries(patch.dictionaryEntries)
     : state.dictionaryEntries;
+  const nextHistory = applyHistoryRetention(state.history, nextKeepAllTranscriptions);
 
   const modelChanged = nextModel !== state.model;
   const languagesChanged = nextLanguages.join(',') !== state.allowedLanguages.join(',');
@@ -2953,6 +2983,8 @@ async function applySettings(patch) {
   const overlayChanged = nextShowOverlayBar !== state.showOverlayBar;
   const soundEffectsChanged = nextSoundEffectsEnabled !== state.soundEffectsEnabled;
   const launchAtLoginChanged = nextLaunchAtLogin !== state.launchAtLogin;
+  const keepAllTranscriptionsChanged =
+    nextKeepAllTranscriptions !== state.keepAllTranscriptions;
   const dictionaryChanged =
     JSON.stringify(nextDictionaryEntries) !== JSON.stringify(state.dictionaryEntries);
 
@@ -2989,6 +3021,12 @@ async function applySettings(patch) {
       {},
       nextInterfaceLanguage,
     );
+  } else if (keepAllTranscriptionsChanged) {
+    notice = translateMain(
+      nextKeepAllTranscriptions ? 'keepAllTranscriptionsOn' : 'keepAllTranscriptionsOff',
+      {},
+      nextInterfaceLanguage,
+    );
   } else if (dictionaryChanged) {
     notice =
       nextDictionaryEntries.length > 0
@@ -3013,6 +3051,8 @@ async function applySettings(patch) {
     showOverlayBar: nextShowOverlayBar,
     soundEffectsEnabled: nextSoundEffectsEnabled,
     launchAtLogin: nextLaunchAtLogin,
+    keepAllTranscriptions: nextKeepAllTranscriptions,
+    history: nextHistory,
     dictionaryEntries: nextDictionaryEntries,
     notice,
     error: '',
@@ -3105,6 +3145,7 @@ app.whenReady().then(() => {
     showOverlayBar: persistedState.preferences.showOverlayBar,
     soundEffectsEnabled: persistedState.preferences.soundEffectsEnabled,
     launchAtLogin: persistedState.preferences.launchAtLogin,
+    keepAllTranscriptions: persistedState.preferences.keepAllTranscriptions,
     dictionaryEntries: persistedState.preferences.dictionaryEntries,
     overlayPosition: defaults.overlayPosition,
   });

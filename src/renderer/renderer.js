@@ -17,7 +17,8 @@ const TRANSLATIONS = {
     wordsSpoken: 'Words spoken',
     averageWpm: 'Average WPM',
     latestTranscriptions: 'Latest transcriptions',
-    historyCopy: 'Local history for the latest 100 messages.',
+    historyCopyLimited: 'Local history for the latest {count} messages.',
+    historyCopyUnlimited: 'Local history for all messages.',
     search: 'Search',
     historySearchPlaceholder: 'Search words in transcriptions...',
     noTranscriptions: 'No transcriptions yet.',
@@ -39,6 +40,12 @@ const TRANSLATIONS = {
     startWithComputerCopy: 'Launch OpenFlow in the background when you sign in.',
     soundEffects: 'Sound feedback',
     soundEffectsCopy: 'Play sounds on load, start, stop, cancel, and hands-free activation.',
+    transcriptionHistory: 'Transcription history',
+    transcriptionHistoryCopy:
+      'Control whether the app stores only the latest local messages or every transcription.',
+    keepAllTranscriptions: 'Keep all transcriptions',
+    keepAllTranscriptionsCopy:
+      'Save every local transcription without the {count}-message limit.',
     detectionLanguages: 'Detection languages',
     detectionLanguagesCopy: 'English is enabled by default. Expand to add more languages.',
     searchDetectionLanguage: 'Search language',
@@ -188,6 +195,34 @@ Object.assign(TRANSLATIONS, {
   tr: { settings: 'Ayarlar', interfaceLanguage: 'Arayüz dili', interfaceLanguageCopy: 'Dil arayın ve uygulama dilini anında değiştirin.', searchLanguage: 'Dil ara', languageSearchPlaceholder: 'Dilini ara...', selectedLanguage: 'Seçili', appearance: 'Görünüm', darkMode: 'Koyu mod', lightMode: 'Açık mod', floatingBar: 'Yüzen çubuk', detectionLanguages: 'Algılama dilleri', transcriptionModels: 'Döküm modelleri', systemDiagnostics: 'Sistem tanıları', close: 'Kapat', dictionary: 'Sözlük' },
 });
 
+Object.assign(TRANSLATIONS['pt-BR'], {
+  historyCopyLimited: 'Historico local das ultimas {count} mensagens.',
+  historyCopyUnlimited: 'Historico local de todas as mensagens.',
+  transcriptionHistory: 'Historico de transcricoes',
+  transcriptionHistoryCopy:
+    'Controle se o app guarda apenas as ultimas mensagens locais ou todas as transcricoes.',
+  keepAllTranscriptions: 'Guardar todas as transcricoes',
+  keepAllTranscriptionsCopy:
+    'Salva cada transcricao local sem o limite de {count} mensagens.',
+});
+
+for (const code of SUPPORTED_INTERFACE_LANGUAGES) {
+  if (code === 'en' || code === 'pt-BR') {
+    continue;
+  }
+
+  Object.assign(TRANSLATIONS[code] || (TRANSLATIONS[code] = {}), {
+    historyCopyLimited: 'Local history for the latest {count} messages.',
+    historyCopyUnlimited: 'Local history for all messages.',
+    transcriptionHistory: 'Transcription history',
+    transcriptionHistoryCopy:
+      'Control whether the app stores only the latest local messages or every transcription.',
+    keepAllTranscriptions: 'Keep all transcriptions',
+    keepAllTranscriptionsCopy:
+      'Save every local transcription without the {count}-message limit.',
+  });
+}
+
 const MODEL_LABELS = {
   tiny: { en: 'Lite', 'pt-BR': 'Lite' },
   base: { en: 'Fast', 'pt-BR': 'Rápido' },
@@ -208,6 +243,7 @@ const els = {
   historyList: document.getElementById('history-list'),
   historyCount: document.getElementById('history-count'),
   historySearch: document.getElementById('history-search'),
+  historyCopy: document.getElementById('history-copy'),
   shortcutLabel: document.getElementById('shortcut-label'),
   pasteShortcutLabel: document.getElementById('paste-shortcut-label'),
   noticeStrip: document.getElementById('notice-strip'),
@@ -254,6 +290,9 @@ const els = {
   showOverlayBar: document.getElementById('show-overlay-bar'),
   launchAtLogin: document.getElementById('launch-at-login'),
   soundEffectsEnabled: document.getElementById('sound-effects-enabled'),
+  keepAllTranscriptions: document.getElementById('keep-all-transcriptions'),
+  keepAllTranscriptionsCopy: document.getElementById('keep-all-transcriptions-copy'),
+  transcriptionHistoryCopy: document.getElementById('transcription-history-copy'),
   themeRadios: document.querySelectorAll('input[name="theme"]'),
   interfaceLanguageSearch: document.getElementById('interface-language-search'),
   interfaceLanguageList: document.getElementById('interface-language-list'),
@@ -283,6 +322,13 @@ function locale() {
 
 function t(key) {
   return (TRANSLATIONS[locale()] && TRANSLATIONS[locale()][key]) || TRANSLATIONS.en[key] || key;
+}
+
+function template(key, replacements = {}) {
+  return Object.entries(replacements).reduce(
+    (message, [name, value]) => message.replaceAll(`{${name}}`, String(value)),
+    t(key),
+  );
 }
 
 function intFmt(value) {
@@ -508,6 +554,31 @@ const savedTheme = localStorage.getItem('openflow-theme') || 'dark';
   }
 }
 
+function updateHistoryCopy() {
+  if (!els.historyCopy) {
+    return;
+  }
+
+  const historyLimit = intFmt(lastState?.historyLimit || 100);
+  els.historyCopy.textContent = lastState?.keepAllTranscriptions
+    ? t('historyCopyUnlimited')
+    : template('historyCopyLimited', { count: historyLimit });
+}
+
+function updateHistorySettingsCopy() {
+  const historyLimit = intFmt(lastState?.historyLimit || 100);
+
+  if (els.transcriptionHistoryCopy) {
+    els.transcriptionHistoryCopy.textContent = t('transcriptionHistoryCopy');
+  }
+
+  if (els.keepAllTranscriptionsCopy) {
+    els.keepAllTranscriptionsCopy.textContent = template('keepAllTranscriptionsCopy', {
+      count: historyLimit,
+    });
+  }
+}
+
 function applyTranslations() {
   document.documentElement.lang = locale();
   document.documentElement.dir = locale() === 'ar' ? 'rtl' : 'ltr';
@@ -530,6 +601,8 @@ function applyTranslations() {
     dictionarySearchLabel.textContent = t('dictionarySearchLabel');
   }
   els.dictionarySearch.setAttribute('placeholder', t('dictionarySearchPlaceholder'));
+  updateHistoryCopy();
+  updateHistorySettingsCopy();
 }
 
 function renderUsageSummary(summary = {}) {
@@ -771,6 +844,7 @@ function renderState(state) {
   els.showOverlayBar.checked = Boolean(state.showOverlayBar);
   els.launchAtLogin.checked = Boolean(state.launchAtLogin);
   els.soundEffectsEnabled.checked = Boolean(state.soundEffectsEnabled);
+  els.keepAllTranscriptions.checked = Boolean(state.keepAllTranscriptions);
 
   renderUsageSummary(state.usageSummary || {});
   renderHistory(state.history, state.historyTotal);
@@ -938,6 +1012,11 @@ function setupHandlers() {
   });
   els.soundEffectsEnabled.addEventListener('change', async () => {
     renderState(await window.flowLocal.updateSettings({ soundEffectsEnabled: els.soundEffectsEnabled.checked }));
+  });
+  els.keepAllTranscriptions.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({
+      keepAllTranscriptions: els.keepAllTranscriptions.checked,
+    }));
   });
 
   els.historySearch.addEventListener('input', () => {
