@@ -1567,7 +1567,7 @@ function getHotkeyActionHandlingState() {
 
   return {
     suppressEscape: canConsumeEscape,
-    suppressSpace: hasLiveCapture,
+    suppressSpace: false,
   };
 }
 
