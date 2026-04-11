@@ -14,7 +14,7 @@ if errorlevel 1 (
 
 echo.
 echo [OpenFlow] Build completed.
-echo [OpenFlow] Installer: "%~dp0dist\OpenFlow Setup 0.1.0.exe"
+echo [OpenFlow] Installer: "%~dp0dist\OpenFlow Setup 1.0.0.exe"
 echo [OpenFlow] Unpacked app: "%~dp0dist\win-unpacked"
 
 exit /b 0
