@@ -8,6 +8,10 @@ on:
     tags:
       - "v*"
 
+# Allow the workflow's GITHUB_TOKEN to create/upload GitHub releases on tag builds.
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Windows x64
