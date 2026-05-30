@@ -2,6 +2,13 @@ name: Build macOS
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Draft Release
+    types:
+      - completed
+    branches:
+      - main
   push:
     branches:
       - "**"
@@ -16,6 +23,9 @@ jobs:
   build:
     name: macOS ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
+    if: |
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      !(github.event_name == 'push' && github.ref == 'refs/heads/main')
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +45,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -71,11 +83,12 @@ jobs:
       - name: Build macOS package
         env:
           # On a v* tag, publish the dmg/zip + latest-mac.yml to the GitHub release that
-          # powers the in-app auto-update. Branch pushes only produce CI artifacts.
+          # powers the in-app auto-update. The main branch publishes after Draft Release
+          # creates the version tag and draft release.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* || "${{ github.event_name }}" == workflow_run ]]; then
             npm run publish:mac:${{ matrix.electron_arch }}
           else
             npm run dist:mac:${{ matrix.electron_arch }}

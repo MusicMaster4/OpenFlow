@@ -1,0 +1,85 @@
+name: Draft Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  draft-release:
+    name: Tag version and draft release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read package version
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require version bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "Skipping version-bump check for the first commit."
+            exit 0
+          fi
+
+          current_version="${{ steps.package.outputs.version }}"
+          previous_version="$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            echo "package.json version must change on every commit to main."
+            echo "Previous version: $previous_version"
+            echo "Current version:  $current_version"
+            exit 1
+          fi
+
+      - name: Ensure tag does not exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.package.outputs.tag }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists. Bump package.json before pushing to main."
+            exit 1
+          fi
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.package.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$tag"
+          git push origin "$tag"
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.package.outputs.tag }}"
+          version="${{ steps.package.outputs.version }}"
+          gh release create "$tag" \
+            --draft \
+            --title "OpenFlow $version" \
+            --notes "Draft release generated automatically from commit $GITHUB_SHA."
