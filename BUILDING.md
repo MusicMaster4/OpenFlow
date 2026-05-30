@@ -161,7 +161,7 @@ starts with `v` (for example `v1.1.0`) they additionally publish the installers 
 
 OpenFlow updates itself from GitHub Releases using `electron-updater`. The repository is
 configured in the `build.publish` block of [`package.json`](./package.json)
-(`owner: MusicMaster4`, `repo: MegaFala`).
+(`owner: MusicMaster4`, `repo: OpenFlow`).
 
 Release flow:
 
