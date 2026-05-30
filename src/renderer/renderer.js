@@ -111,6 +111,7 @@ const TRANSLATIONS = {
     updateDownloaded: 'Version {version} is ready. Restart to finish installing.',
     updateError: 'Update failed: {message}',
     updateUnsupported: 'Updates are available only in the installed app.',
+    updateMetadataUnavailable: 'No update is available. Auto-update metadata was not found for the latest GitHub release.',
     updateNotPackaged:
       'This installed version does not support in-app updates yet. Install the latest build once to enable them.',
   },
@@ -212,6 +213,8 @@ const TRANSLATIONS = {
     updateDownloaded: 'Versão {version} pronta. Reinicie para concluir a instalação.',
     updateError: 'Falha na atualização: {message}',
     updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
+    updateMetadataUnavailable:
+      'Nenhuma atualização disponível. Os metadados de atualização não foram encontrados no release mais recente do GitHub.',
     updateNotPackaged:
       'Esta versão instalada ainda não suporta atualização pelo app. Instale a versão mais recente uma vez para habilitar.',
   },
@@ -874,9 +877,9 @@ function describeUpdate(update) {
       return { text: t('updateUnsupported'), action: 'check', busy: false, error: false };
     case 'error': {
       const message = update.message || '';
-      // An old install (built before auto-update was wired) has no app-update.yml.
-      if (/app-update\.yml/i.test(message)) {
-        return { text: t('updateNotPackaged'), action: 'check', busy: false, error: false };
+      // A release can exist without the electron-updater metadata files.
+      if (/(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message)) {
+        return { text: t('updateMetadataUnavailable'), action: 'check', busy: false, error: false };
       }
       return {
         text: template('updateError', { message }),

@@ -37,6 +37,8 @@ const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
 const APP_NAME = 'OpenFlow';
 const APP_ID = 'com.openflow.app';
+const UPDATE_REPO_OWNER = 'MusicMaster4';
+const UPDATE_REPO_NAME = 'OpenFlow';
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -3214,6 +3216,82 @@ function setUpdateState(patch) {
   }
 }
 
+function normalizeReleaseVersion(version) {
+  return String(version || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[+-]/)[0];
+}
+
+function compareReleaseVersions(left, right) {
+  const leftParts = normalizeReleaseVersion(left).split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = normalizeReleaseVersion(right).split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length, 3);
+
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (delta !== 0) {
+      return delta > 0 ? 1 : -1;
+    }
+  }
+
+  return 0;
+}
+
+function isMissingUpdateMetadataError(error) {
+  const message = String((error && error.message) || error || '');
+  return /(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message);
+}
+
+async function getLatestGithubReleaseVersion() {
+  if (typeof fetch !== 'function') {
+    throw new Error('Fetch is not available in this runtime.');
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/releases/latest`,
+    {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `${APP_NAME}/${app.getVersion()}`,
+      },
+    },
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`GitHub release lookup failed with HTTP ${response.status}.`);
+  }
+
+  const release = await response.json();
+  return normalizeReleaseVersion(release && release.tag_name);
+}
+
+async function handleMissingUpdateMetadata(error) {
+  if (!isMissingUpdateMetadataError(error)) {
+    return false;
+  }
+
+  const latestVersion = await getLatestGithubReleaseVersion();
+  if (!latestVersion || compareReleaseVersions(latestVersion, app.getVersion()) <= 0) {
+    setUpdateState({ status: 'not-available', availableVersion: null, progress: 0, message: '' });
+    return true;
+  }
+
+  setUpdateState({
+    status: 'error',
+    availableVersion: latestVersion,
+    progress: 0,
+    message:
+      `Version ${latestVersion} exists on GitHub, but the auto-update metadata is missing. ` +
+      'Publish the installer with latest.yml to enable in-app updates.',
+  });
+  return true;
+}
+
 function loadAutoUpdater() {
   if (autoUpdaterInitialized) {
     return autoUpdater;
@@ -3253,9 +3331,11 @@ function loadAutoUpdater() {
         message: '',
       }),
     );
-    autoUpdater.on('error', (error) =>
-      setUpdateState({ status: 'error', message: String((error && error.message) || error || 'Update error') }),
-    );
+    autoUpdater.on('error', (error) => {
+      handleMissingUpdateMetadata(error).catch(() =>
+        setUpdateState({ status: 'error', message: String((error && error.message) || error || 'Update error') }),
+      );
+    });
   } catch (error) {
     autoUpdater = null;
     setUpdateState({ status: 'unsupported', message: String((error && error.message) || error) });
@@ -3283,7 +3363,13 @@ ipcMain.handle('check-for-updates', async () => {
     setUpdateState({ status: 'checking', message: '' });
     await updater.checkForUpdates();
   } catch (error) {
-    setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+    try {
+      if (!(await handleMissingUpdateMetadata(error))) {
+        setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+      }
+    } catch (_fallbackError) {
+      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+    }
   }
 
   return getUpdateSnapshot();
@@ -3336,9 +3422,15 @@ function scheduleStartupUpdateCheck() {
   setTimeout(() => {
     updater
       .checkForUpdates()
-      .catch((error) =>
-        setUpdateState({ status: 'error', message: String((error && error.message) || error) }),
-      );
+      .catch(async (error) => {
+        try {
+          if (!(await handleMissingUpdateMetadata(error))) {
+            setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+          }
+        } catch (_fallbackError) {
+          setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+        }
+      });
   }, 8000);
 }
 
