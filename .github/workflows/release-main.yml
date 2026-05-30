@@ -1,0 +1,297 @@
+name: Release Main
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  validate-version:
+    name: Validate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      tag: ${{ steps.package.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read package version
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').version")"
+
+          if [[ "$version" != "$lock_version" ]]; then
+            echo "package.json and package-lock.json versions must match."
+            echo "package.json:      $version"
+            echo "package-lock.json: $lock_version"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Require version bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+            echo "Skipping version-bump check for the first commit."
+            exit 0
+          fi
+
+          current_version="${{ steps.package.outputs.version }}"
+          previous_version="$(git show HEAD^:package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")"
+
+          if [[ "$current_version" == "$previous_version" ]]; then
+            echo "package.json version must change on every commit to main."
+            echo "Previous version: $previous_version"
+            echo "Current version:  $current_version"
+            exit 1
+          fi
+
+      - name: Ensure release tag is new
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.package.outputs.tag }}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists. Bump package.json before pushing to main."
+            exit 1
+          fi
+
+  build-windows:
+    name: Build Windows x64
+    needs: validate-version
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Install Python dependencies
+        run: |
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r .\python\requirements.txt
+          .\.venv\Scripts\python.exe -m pip install pyinstaller
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        run: npm run check
+
+      - name: Build Windows package
+        env:
+          OPENFLOW_PUBLISH: never
+        run: npm run dist:win
+
+      - name: Verify packaged binaries
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $appPath = Join-Path $PWD 'dist\win-unpacked\OpenFlow.exe'
+          if (-not (Test-Path $appPath)) {
+            throw "Executable not found: $appPath"
+          }
+
+          $installer = Get-ChildItem -Path dist -Filter *.exe | Where-Object { $_.Name -ne 'OpenFlow.exe' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw 'NSIS installer not found in dist/.'
+          }
+
+          Write-Host "App:" $appPath
+          Write-Host "Installer:" $installer.FullName
+
+      - name: Generate checksums
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = 'dist\SHA256SUMS-windows-x64.txt'
+          $lines = Get-ChildItem -Path dist -File | Where-Object { $_.Extension -in '.exe', '.yml', '.blockmap' } | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          Set-Content -Path $output -Value $lines
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openflow-windows-x64-release
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
+            dist/SHA256SUMS-windows-x64.txt
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS ${{ matrix.name }}
+    needs: validate-version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Intel
+            runner: macos-15-intel
+            electron_arch: x64
+            pyinstaller_arch: x86_64
+          - name: Apple-Silicon
+            runner: macos-15
+            electron_arch: arm64
+            pyinstaller_arch: arm64
+
+    env:
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: python/requirements.txt
+
+      - name: Create virtual environment
+        run: |
+          python -m venv .venv
+
+      - name: Install Python dependencies
+        run: |
+          ./.venv/bin/python -m pip install --upgrade pip
+          ./.venv/bin/python -m pip install -r python/requirements.txt
+          ./.venv/bin/python -m pip install pyinstaller
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Validate JavaScript
+        run: npm run check
+
+      - name: Ensure build script is executable
+        run: chmod +x ./scripts/build-python.sh
+
+      - name: Build macOS package
+        run: npm run dist:mac:${{ matrix.electron_arch }}
+
+      - name: Verify packaged binary architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find dist -maxdepth 2 -name 'OpenFlow.app' -print -quit)"
+          if [[ -z "$APP_PATH" ]]; then
+            echo "OpenFlow.app not found in dist/"
+            exit 1
+          fi
+
+          EXPECTED_ARCH="${{ matrix.pyinstaller_arch }}"
+          BINARIES=(
+            "$APP_PATH/Contents/MacOS/OpenFlow"
+            "$APP_PATH/Contents/Resources/bin/dictation_service/dictation_service"
+            "$APP_PATH/Contents/Resources/bin/hotkey_listener/hotkey_listener"
+          )
+
+          for BINARY in "${BINARIES[@]}"; do
+            ACTUAL_ARCHES="$(lipo -archs "$BINARY")"
+            echo "$BINARY -> $ACTUAL_ARCHES"
+            if [[ "$ACTUAL_ARCHES" != *"$EXPECTED_ARCH"* ]]; then
+              echo "Unexpected architecture for $BINARY"
+              exit 1
+            fi
+          done
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 > "dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openflow-macos-${{ matrix.electron_arch }}-release
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.yml
+            dist/*.blockmap
+            dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt
+          if-no-files-found: error
+
+  create-release:
+    name: Create draft release
+    needs:
+      - validate-version
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: openflow-*-release
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate-version.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -d '' assets < <(find release-artifacts -type f -print0 | sort -z)
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release artifacts found."
+            exit 1
+          fi
+
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "OpenFlow $RELEASE_VERSION" \
+            --notes "Draft release generated automatically after successful Windows and macOS builds for commit $GITHUB_SHA."

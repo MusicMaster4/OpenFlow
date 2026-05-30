@@ -152,10 +152,17 @@ Expected outputs:
 
 - [`.github/workflows/build-windows.yml`](./.github/workflows/build-windows.yml)
 - [`.github/workflows/build-macos.yml`](./.github/workflows/build-macos.yml)
+- [`.github/workflows/release-main.yml`](./.github/workflows/release-main.yml)
 
-On a normal branch push the workflows only upload CI artifacts. When you push a tag that
-starts with `v` (for example `v1.1.0`) they additionally publish the installers plus the
-`latest.yml` / `latest-mac.yml` update metadata to the matching GitHub release.
+On a normal branch push the platform workflows only upload CI artifacts. On a push to
+`main`, the release workflow validates that the app version changed, builds Windows and
+macOS, and only then creates a draft GitHub release with the generated installers and
+update metadata.
+
+Manual tag builds are still supported for recovery or one-off releases: pushing a tag
+that starts with `v` (for example `v1.1.0`) makes the platform workflows publish the
+installers plus the `latest.yml` / `latest-mac.yml` update metadata to the matching
+GitHub release.
 
 ## Releases and in-app auto-update
 
@@ -165,11 +172,12 @@ configured in the `build.publish` block of [`package.json`](./package.json)
 
 Release flow:
 
-1. Bump `version` in `package.json` (see [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md)).
-2. Commit and push a matching tag, e.g. `git tag v1.1.0 && git push origin v1.1.0`.
-3. The Windows and macOS workflows build and publish the assets to a **draft** GitHub
-   release for that tag.
-4. Review the draft and press **Publish release**. Once it is published, installed apps
+1. Bump `version` in `package.json` and `package-lock.json` (see [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md)).
+2. Commit and push to `main`.
+3. The release workflow builds Windows and macOS first.
+4. If every build succeeds, the workflow creates tag `v<version>` and a **draft** GitHub
+   release containing the generated installers and update metadata.
+5. Review the draft and press **Publish release**. Once it is published, installed apps
    detect it: OpenFlow checks on startup and from **Settings → Software update**, where the
    user can download and then restart to install. `electron-updater` automatically selects
    the correct OS asset and, on macOS, the correct CPU architecture (Intel vs Apple Silicon).
