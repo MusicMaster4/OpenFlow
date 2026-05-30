@@ -451,6 +451,9 @@ class DictationService:
                 mask = np.zeros_like(freqs, dtype=bool)
                 mask[nearest] = True
             self.band_masks.append(mask)
+        # Treble compensation: natural audio rolls off toward higher frequencies, so the
+        # upper bars barely moved. Boost higher bands so each part of the spectrum reacts.
+        self.band_tilt = np.linspace(1.0, 3.2, self.band_count)
 
     def _compute_band_shape(self, samples: np.ndarray) -> list[float]:
         # Returns a volume-independent spectral shape: each value is roughly a band's
@@ -468,14 +471,20 @@ class DictationService:
 
         spectrum = np.abs(np.fft.rfft(buffer * self.fft_window))
         power = np.square(spectrum)
-        band_energy = np.array(
-            [float(power[mask].sum()) for mask in self.band_masks], dtype=np.float64
+        # Per-band amplitude (sqrt of mean power) compresses the huge gap between bass and
+        # treble far better than raw energy, then the tilt lifts the highs on top of that.
+        band_amp = np.array(
+            [float(np.sqrt(power[mask].mean())) if mask.any() else 0.0 for mask in self.band_masks],
+            dtype=np.float64,
         )
-        total = float(band_energy.sum())
-        if total <= 1e-9:
+        metric = band_amp * self.band_tilt
+        mean = float(metric.mean())
+        if mean <= 1e-9:
             return [1.0] * self.band_count
 
-        shape = band_energy / total * self.band_count
+        # Volume-independent shape (~1 is an average band); the overlay multiplies this by
+        # the overall level so loudness drives height while the shape spreads it per bar.
+        shape = metric / mean
         return [round(float(min(3.0, value)), 3) for value in shape]
 
     def _audio_callback(self, indata, _frames, _time_info, status) -> None:
