@@ -130,6 +130,29 @@
           <div class="panel--settings">
             <div class="section-head">
               <div>
+                <h2 data-i18n="softwareUpdate">Software update</h2>
+                <p class="section-head__copy" data-i18n="softwareUpdateCopy">
+                  Install the newest OpenFlow build straight from inside the app.
+                </p>
+              </div>
+            </div>
+            <div class="update-card">
+              <div class="update-card__info">
+                <span class="update-card__version" id="update-version">v--</span>
+                <span class="update-card__status" id="update-status-text"></span>
+                <div class="update-progress hidden" id="update-progress" aria-hidden="true">
+                  <span id="update-progress-bar"></span>
+                </div>
+              </div>
+              <button class="settings-button" id="update-action" type="button" data-i18n="checkForUpdates">
+                Check for updates
+              </button>
+            </div>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
                 <h2 data-i18n="interfaceLanguage">Interface language</h2>
                 <p class="section-head__copy" data-i18n="interfaceLanguageCopy">
                   Search and switch the app language instantly. The app defaults to English.
@@ -321,22 +344,28 @@
 
         <div class="dialog-window__body">
           <form class="dictionary-form" id="dictionary-form">
-            <div class="dictionary-form__grid">
-              <label class="form-field" for="dictionary-sources">
-                <span data-i18n="dictionarySources">Rule inputs</span>
+            <p class="dictionary-form__intro" data-i18n="dictionaryFormIntro">
+              Create a rule: anything on the left is automatically rewritten to the text on the right.
+            </p>
+
+            <div class="dictionary-form__flow">
+              <label class="form-field dictionary-form__from" for="dictionary-sources">
+                <span data-i18n="dictionarySources">When you say</span>
                 <textarea
                   id="dictionary-sources"
-                  rows="4"
+                  rows="3"
                   data-i18n-placeholder="dictionarySourcesPlaceholder"
                   placeholder="One variation per line&#10;open flow&#10;openflow"
                 ></textarea>
                 <p class="form-hint" data-i18n="dictionarySourcesHint">
-                  Add as many variations as needed. Use one entry per line.
+                  One variation per line — every line becomes the replacement.
                 </p>
               </label>
 
-              <label class="form-field" for="dictionary-target">
-                <span data-i18n="dictionaryTarget">Final replacement</span>
+              <div class="dictionary-form__arrow" aria-hidden="true">→</div>
+
+              <label class="form-field dictionary-form__to" for="dictionary-target">
+                <span data-i18n="dictionaryTarget">Replace with</span>
                 <input
                   id="dictionary-target"
                   type="text"
@@ -344,12 +373,15 @@
                   data-i18n-placeholder="dictionaryTargetPlaceholder"
                   placeholder="Example: OpenFlow"
                 />
+                <p class="form-hint" data-i18n="dictionaryTargetHint">
+                  The exact text inserted into your transcriptions.
+                </p>
               </label>
             </div>
 
-            <div class="dictionary-form__footer">
-              <div class="dictionary-form__options">
-                <span class="form-field__label" data-i18n="activeLanguages">Active languages</span>
+            <div class="dictionary-form__controls">
+              <div class="dictionary-form__langs">
+                <span class="form-field__label" data-i18n="dictionaryApplyTo">Apply to</span>
                 <div class="language-grid language-grid--dictionary">
                   <label class="language-option">
                     <input id="dictionary-lang-pt" type="checkbox" value="pt" />
@@ -376,36 +408,23 @@
           <section class="dictionary-section">
             <div class="section-head section-head--tight">
               <div>
-                <h2 data-i18n="activeRules">Active rules</h2>
+                <h2 data-i18n="activeRules">Your rules</h2>
               </div>
-              <div class="dictionary-section__head-actions">
-                <span class="section-count" id="dictionary-count">0 rules</span>
-                <button
-                  class="secondary-button dictionary-section__toggle"
-                  id="toggle-dictionary-rules"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="dictionary-rules-body"
-                >
-                  Show rules
-                </button>
-              </div>
+              <span class="section-count" id="dictionary-count">0 rules</span>
             </div>
 
-            <div class="dictionary-section__body hidden" id="dictionary-rules-body">
-              <label class="dictionary-search" for="dictionary-search">
-                <span class="dictionary-search__label">Search active rule</span>
-                <input
-                  id="dictionary-search"
-                  type="search"
-                  placeholder="Type a word from the input or output"
-                  autocomplete="off"
-                />
-              </label>
+            <label class="dictionary-search" for="dictionary-search">
+              <span class="dictionary-search__label">Search rules</span>
+              <input
+                id="dictionary-search"
+                type="search"
+                placeholder="Type a word from the input or output"
+                autocomplete="off"
+              />
+            </label>
 
-              <div class="dictionary-list" id="dictionary-list">
-                <div class="history-empty" data-i18n="noRules">No rules yet.</div>
-              </div>
+            <div class="dictionary-list" id="dictionary-list">
+              <div class="history-empty" data-i18n="noRules">No rules yet.</div>
             </div>
           </section>
         </div>

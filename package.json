@@ -1,7 +1,7 @@
 {
   "name": "openflow",
   "productName": "OpenFlow",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Cross-platform desktop dictation app OpenFlow using Electron and Faster-Whisper.",
   "main": "src/main/main.js",
   "scripts": {
@@ -12,12 +12,21 @@
     "dist:win": "node scripts/build-win.js",
     "dist:mac": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --publish never",
     "dist:mac:x64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --x64 --publish never",
-    "dist:mac:arm64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --arm64 --publish never"
+    "dist:mac:arm64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --arm64 --publish never",
+    "publish:mac:x64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --x64 --publish always",
+    "publish:mac:arm64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --arm64 --publish always"
   },
   "build": {
     "appId": "com.openflow.app",
     "productName": "OpenFlow",
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MusicMaster4",
+        "repo": "MegaFala"
+      }
+    ],
     "files": [
       "src/**/*",
       "package.json",
@@ -60,6 +69,7 @@
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
+      "deleteAppDataOnUninstall": false,
       "installerIcon": "src/assets/openflow.ico",
       "installerHeaderIcon": "src/assets/openflow.ico",
       "uninstallerIcon": "src/assets/openflow.ico"
@@ -83,6 +93,7 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "dotenv": "^17.3.1"
+    "dotenv": "^17.3.1",
+    "electron-updater": "^6.8.3"
   }
 }

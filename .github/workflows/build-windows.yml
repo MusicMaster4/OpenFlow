@@ -46,6 +46,11 @@ jobs:
         run: npm run check
 
       - name: Build Windows package
+        env:
+          # On a v* tag, publish the installer + latest.yml to the GitHub release that
+          # powers the in-app auto-update. Branch pushes only produce CI artifacts.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENFLOW_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         run: npm run dist:win
 
       - name: Verify packaged binaries

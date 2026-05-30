@@ -77,6 +77,10 @@ function resolveRceditPath() {
   return matches[0]?.fullPath || null;
 }
 
+// Set OPENFLOW_PUBLISH=always (with a valid GH_TOKEN) to upload the installer and
+// latest.yml metadata to the GitHub release that powers the in-app auto-update.
+const publishMode = process.env.OPENFLOW_PUBLISH === 'always' ? 'always' : 'never';
+
 async function main() {
   fs.rmSync(distDir, { recursive: true, force: true });
 
@@ -122,7 +126,7 @@ async function main() {
     '--prepackaged',
     unpackedDir,
     '--publish',
-    'never',
+    publishMode,
     '--config.win.signAndEditExecutable=false',
   ]);
 }

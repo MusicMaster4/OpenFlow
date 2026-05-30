@@ -154,6 +154,7 @@ class DictationService:
         self.sample_rate = 16000
         self.frame_ms = 30
         self.frame_samples = int(self.sample_rate * self.frame_ms / 1000)
+        self._init_spectrum_bands()
         self.vad = webrtcvad.Vad(2)
         self.model_name = os.getenv("WHISPER_MODEL", "small")
         self.model_dir = os.getenv("WHISPER_MODEL_DIR")
@@ -433,6 +434,50 @@ class DictationService:
         self.stop_event.set()
         self.segment_queue.put(None)
 
+    def _init_spectrum_bands(self) -> None:
+        # Precompute a log-spaced filterbank (lows -> highs) used to turn each audio
+        # frame into an 11-bar spectrum for the floating overlay wave.
+        self.band_count = 11
+        self.fft_window = np.hanning(self.frame_samples).astype(np.float32)
+        freqs = np.fft.rfftfreq(self.frame_samples, 1.0 / self.sample_rate)
+        top_freq = min(7600.0, self.sample_rate / 2.0 - 1.0)
+        edges = np.logspace(np.log10(80.0), np.log10(top_freq), self.band_count + 1)
+        self.band_masks: list[np.ndarray] = []
+        for index in range(self.band_count):
+            low, high = edges[index], edges[index + 1]
+            mask = (freqs >= low) & (freqs < high)
+            if not mask.any():
+                nearest = int(np.argmin(np.abs(freqs - (low + high) / 2.0)))
+                mask = np.zeros_like(freqs, dtype=bool)
+                mask[nearest] = True
+            self.band_masks.append(mask)
+
+    def _compute_band_shape(self, samples: np.ndarray) -> list[float]:
+        # Returns a volume-independent spectral shape: each value is roughly a band's
+        # share of the energy scaled so an average band is ~1.0. The overlay multiplies
+        # this by the overall level, so loudness drives height while the shape spreads it
+        # across the bars (lows on the left, highs on the right).
+        if samples.size == 0:
+            return [1.0] * self.band_count
+
+        if samples.size < self.frame_samples:
+            buffer = np.zeros(self.frame_samples, dtype=np.float32)
+            buffer[: samples.size] = samples.astype(np.float32) / 32768.0
+        else:
+            buffer = samples[: self.frame_samples].astype(np.float32) / 32768.0
+
+        spectrum = np.abs(np.fft.rfft(buffer * self.fft_window))
+        power = np.square(spectrum)
+        band_energy = np.array(
+            [float(power[mask].sum()) for mask in self.band_masks], dtype=np.float64
+        )
+        total = float(band_energy.sum())
+        if total <= 1e-9:
+            return [1.0] * self.band_count
+
+        shape = band_energy / total * self.band_count
+        return [round(float(min(3.0, value)), 3) for value in shape]
+
     def _audio_callback(self, indata, _frames, _time_info, status) -> None:
         if status:
             self.emit("warning", {"message": str(status)})
@@ -478,6 +523,7 @@ class DictationService:
             "level",
             {
                 "level": round(level, 4),
+                "bands": self._compute_band_shape(samples),
                 "session_id": self.current_session_id,
             },
         )

@@ -26,6 +26,9 @@ let feedbackTimer = null;
 let activeFeedback = null;
 let activeSoundKey = null;
 let soundDrainScheduled = false;
+let soundWatchdog = null;
+
+const SOUND_WATCHDOG_MS = 4000;
 
 const overlayReadyLabels = {
   en: 'READY',
@@ -55,7 +58,16 @@ const feedbackSounds = {
 const soundQueue = [];
 
 const waveBars = Array.from(overlayEls.wave.querySelectorAll('span'));
-const barWeights = [0.46, 0.78, 1, 0.78, 0.46];
+const BAR_COUNT = waveBars.length;
+// Spectral shape per bar (~1 means an average band). Defaults to a gentle bell so the
+// idle/scalar fallback still looks like a wave when no spectrum data is available.
+const defaultShape = waveBars.map((_bar, index) => {
+  const center = (BAR_COUNT - 1) / 2;
+  const distance = Math.abs(index - center) / center;
+  return 0.55 + (1 - distance) * 0.6;
+});
+let targetShape = defaultShape.slice();
+let currentShape = defaultShape.slice();
 
 for (const audio of Object.values(feedbackSounds)) {
   audio.preload = 'auto';
@@ -190,9 +202,17 @@ function renderOverlay(state) {
   lastOverlayMode = mode;
 }
 
+function clearSoundWatchdog() {
+  if (soundWatchdog) {
+    window.clearTimeout(soundWatchdog);
+    soundWatchdog = null;
+  }
+}
+
 function stopAllSounds() {
   soundQueue.length = 0;
   activeSoundKey = null;
+  clearSoundWatchdog();
   for (const audio of Object.values(feedbackSounds)) {
     audio.pause();
     audio.currentTime = 0;
@@ -200,6 +220,7 @@ function stopAllSounds() {
 }
 
 function stopActiveSound() {
+  clearSoundWatchdog();
   if (!activeSoundKey) {
     return;
   }
@@ -212,6 +233,15 @@ function stopActiveSound() {
 
   audio.pause();
   audio.currentTime = 0;
+}
+
+function releaseActiveSound(soundKey) {
+  if (soundKey && activeSoundKey !== soundKey) {
+    return;
+  }
+  clearSoundWatchdog();
+  activeSoundKey = null;
+  scheduleSoundDrain();
 }
 
 function drainSoundQueue() {
@@ -229,11 +259,15 @@ function drainSoundQueue() {
 
   activeSoundKey = soundKey;
   audio.currentTime = 0;
+  // Safety net: if the audio element never fires ended/error (which permanently
+  // froze the whole sound queue before), force-release it after a hard timeout.
+  clearSoundWatchdog();
+  soundWatchdog = window.setTimeout(() => releaseActiveSound(soundKey), SOUND_WATCHDOG_MS);
+
   const playResult = audio.play();
   if (playResult && typeof playResult.catch === 'function') {
     playResult.catch(() => {
-      activeSoundKey = null;
-      drainSoundQueue();
+      releaseActiveSound(soundKey);
     });
   }
 }
@@ -244,7 +278,9 @@ function scheduleSoundDrain() {
   }
 
   soundDrainScheduled = true;
-  window.requestAnimationFrame(drainSoundQueue);
+  // setTimeout (not requestAnimationFrame) so the queue keeps draining even if the
+  // overlay window is hidden/occluded and its animation frames are paused.
+  window.setTimeout(drainSoundQueue, 0);
 }
 
 function queueSound(soundKey, options = {}) {
@@ -289,35 +325,57 @@ function applyWaveLevel(level) {
   const visualLevel = Math.min(1, clampedLevel * 2);
 
   waveBars.forEach((bar, index) => {
-    const intensity = Math.min(1, visualLevel * barWeights[index]);
+    const intensity = Math.min(1, visualLevel * currentShape[index]);
     // Base height 4px, maximum height scaled up for a taller wave
-    const height = 4 + intensity * 16; 
+    const height = 4 + intensity * 16;
     const opacity = 0.4 + intensity * 0.6;
-    
+
     // We use Math.round to avoid sub-pixel height rendering (which causes distortion)
     bar.style.height = `${Math.round(height)}px`;
     bar.style.opacity = opacity.toFixed(2);
   });
 }
 
+function isWaveSettled() {
+  if (Math.abs(targetAudioLevel - currentAudioLevel) >= 0.004) {
+    return false;
+  }
+
+  for (let index = 0; index < BAR_COUNT; index += 1) {
+    if (Math.abs(targetShape[index] - currentShape[index]) >= 0.01) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function animateWave() {
   levelFrame = 0;
-  const delta = targetAudioLevel - currentAudioLevel;
-  if (Math.abs(delta) < 0.004) {
+
+  if (isWaveSettled()) {
     currentAudioLevel = targetAudioLevel;
+    for (let index = 0; index < BAR_COUNT; index += 1) {
+      currentShape[index] = targetShape[index];
+    }
     applyWaveLevel(currentAudioLevel);
     return;
   }
 
-  currentAudioLevel += delta * 0.34;
+  currentAudioLevel += (targetAudioLevel - currentAudioLevel) * 0.34;
+  for (let index = 0; index < BAR_COUNT; index += 1) {
+    currentShape[index] += (targetShape[index] - currentShape[index]) * 0.4;
+  }
   applyWaveLevel(currentAudioLevel);
   levelFrame = window.requestAnimationFrame(animateWave);
 }
 
-function setAudioLevel(level) {
-  targetAudioLevel = Math.max(0, Math.min(1, Number(level) || 0));
-  if (Math.abs(targetAudioLevel - currentAudioLevel) < 0.004) {
+function ensureWaveAnimating() {
+  if (isWaveSettled()) {
     currentAudioLevel = targetAudioLevel;
+    for (let index = 0; index < BAR_COUNT; index += 1) {
+      currentShape[index] = targetShape[index];
+    }
     applyWaveLevel(currentAudioLevel);
     return;
   }
@@ -325,6 +383,27 @@ function setAudioLevel(level) {
   if (!levelFrame) {
     levelFrame = window.requestAnimationFrame(animateWave);
   }
+}
+
+function setAudioLevel(level) {
+  targetAudioLevel = Math.max(0, Math.min(1, Number(level) || 0));
+  if (targetAudioLevel === 0) {
+    // Relax the spectrum back to its neutral shape while silent.
+    targetShape = defaultShape.slice();
+  }
+  ensureWaveAnimating();
+}
+
+function setAudioBands(bands) {
+  if (!Array.isArray(bands) || bands.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < BAR_COUNT; index += 1) {
+    const value = Number(bands[index]);
+    targetShape[index] = Number.isFinite(value) ? Math.max(0, Math.min(3, value)) : targetShape[index];
+  }
+  ensureWaveAnimating();
 }
 
 function bindDrag() {
@@ -339,13 +418,7 @@ function bindDrag() {
 
 function bindSoundLifecycle() {
   for (const [soundKey, audio] of Object.entries(feedbackSounds)) {
-    const release = () => {
-      if (activeSoundKey !== soundKey) {
-        return;
-      }
-      activeSoundKey = null;
-      scheduleSoundDrain();
-    };
+    const release = () => releaseActiveSound(soundKey);
 
     audio.addEventListener('ended', release);
     audio.addEventListener('error', release);
@@ -410,6 +483,13 @@ async function bootstrap() {
     }
 
     setAudioLevel(level);
+  });
+  window.flowOverlay.onAudioBandsUpdate((bands) => {
+    if (lastOverlayMode !== 'recording') {
+      return;
+    }
+
+    setAudioBands(bands);
   });
   window.flowOverlay.onFeedback((feedback) => {
     handleFeedback(feedback);

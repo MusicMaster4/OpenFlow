@@ -65,7 +65,17 @@ jobs:
         run: chmod +x ./scripts/build-python.sh
 
       - name: Build macOS package
-        run: npm run dist:mac:${{ matrix.electron_arch }}
+        env:
+          # On a v* tag, publish the dmg/zip + latest-mac.yml to the GitHub release that
+          # powers the in-app auto-update. Branch pushes only produce CI artifacts.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            npm run publish:mac:${{ matrix.electron_arch }}
+          else
+            npm run dist:mac:${{ matrix.electron_arch }}
+          fi
 
       - name: Verify packaged binary architectures
         shell: bash

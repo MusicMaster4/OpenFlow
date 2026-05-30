@@ -152,3 +152,43 @@ Expected outputs:
 
 - [`.github/workflows/build-windows.yml`](./.github/workflows/build-windows.yml)
 - [`.github/workflows/build-macos.yml`](./.github/workflows/build-macos.yml)
+
+On a normal branch push the workflows only upload CI artifacts. When you push a tag that
+starts with `v` (for example `v1.1.0`) they additionally publish the installers plus the
+`latest.yml` / `latest-mac.yml` update metadata to the matching GitHub release.
+
+## Releases and in-app auto-update
+
+OpenFlow updates itself from GitHub Releases using `electron-updater`. The repository is
+configured in the `build.publish` block of [`package.json`](./package.json)
+(`owner: MusicMaster4`, `repo: MegaFala`).
+
+Release flow:
+
+1. Bump `version` in `package.json` (see [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md)).
+2. Commit and push a matching tag, e.g. `git tag v1.1.0 && git push origin v1.1.0`.
+3. The Windows and macOS workflows build and publish the assets to a **draft** GitHub
+   release for that tag.
+4. Review the draft and press **Publish release**. Once it is published, installed apps
+   detect it: OpenFlow checks on startup and from **Settings → Software update**, where the
+   user can download and then restart to install. `electron-updater` automatically selects
+   the correct OS asset and, on macOS, the correct CPU architecture (Intel vs Apple Silicon).
+
+To publish locally instead of via CI, set a `GH_TOKEN` with `repo` scope and run
+`OPENFLOW_PUBLISH=always npm run dist:win` (Windows) or
+`npm run publish:mac:arm64` / `npm run publish:mac:x64` (macOS).
+
+### macOS multi-architecture caveat
+
+The two macOS architectures are built on separate runners and published to the same
+release, so each job writes its own `latest-mac.yml`. If both jobs publish, the last one
+wins and only that architecture gets a clean auto-update entry. Until the two metadata
+files are merged (or both arches are built in a single `electron-builder` invocation),
+treat macOS auto-update as best effort — the Windows path is the fully supported one.
+
+## Updating an existing installation
+
+The Windows NSIS installer upgrades a previous install in place and keeps all user data,
+because settings, history, and the dictionary live in the user data directory
+(`%APPDATA%/OpenFlow/store/settings.json`), not in the install folder. `deleteAppDataOnUninstall`
+is set to `false`, so even a manual uninstall/reinstall preserves preferences and rules.

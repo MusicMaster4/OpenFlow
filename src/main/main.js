@@ -1300,6 +1300,36 @@ function syncOverlayWindow() {
   }
 }
 
+let overlayRecoveryPending = false;
+
+// If the overlay renderer crashes or hangs, recreate it so the indicator pill and
+// sound effects come back without the user having to restart the whole app.
+function recoverOverlayWindow() {
+  if (overlayRecoveryPending || isQuitting) {
+    return;
+  }
+
+  overlayRecoveryPending = true;
+  setTimeout(() => {
+    overlayRecoveryPending = false;
+
+    if (isQuitting) {
+      return;
+    }
+
+    try {
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.destroy();
+      }
+    } catch (_error) {
+      // Best effort.
+    }
+
+    overlayWindow = null;
+    createOverlayWindow();
+  }, 400);
+}
+
 function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
     width: OVERLAY_WIDTH,
@@ -1322,7 +1352,18 @@ function createOverlayWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       autoplayPolicy: 'no-user-gesture-required',
+      // The overlay spends most of its life hidden or occluded. Without this, Electron
+      // throttles its timers and requestAnimationFrame loop, which silently freezes the
+      // sound-effect queue and the indicator pill until the app is restarted.
+      backgroundThrottling: false,
     },
+  });
+
+  overlayWindow.webContents.on('render-process-gone', () => {
+    recoverOverlayWindow();
+  });
+  overlayWindow.webContents.on('unresponsive', () => {
+    recoverOverlayWindow();
   });
 
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -1511,6 +1552,18 @@ function setOverlayAudioLevel(level) {
   overlayWindow.webContents.send('overlay-audio-level', nextLevel);
 }
 
+function setOverlayAudioBands(bands) {
+  if (!Array.isArray(bands) || bands.length === 0) {
+    return;
+  }
+
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+
+  overlayWindow.webContents.send('overlay-audio-bands', bands);
+}
+
 function getServiceEnv() {
   const macOverrides =
     process.platform === 'darwin'
@@ -1690,7 +1743,25 @@ function hasOngoingTranscription() {
   );
 }
 
+// Paste operations are serialized: a transcription auto-paste and a manual
+// "paste last" shortcut must never run their clipboard swaps concurrently, or one
+// process restores the old clipboard while the other is mid-paste, which leaves the
+// target app pasting stale/empty text and breaks subsequent pastes too.
+let pasteChain = Promise.resolve();
+
 function insertTextIntoFocusedApp(text) {
+  const run = () => runTextInsertion(text);
+  const next = pasteChain.then(run, run);
+  // Keep the chain alive even when a paste rejects, but don't surface that rejection
+  // to the chain's own consumers (each caller still gets its own result/rejection).
+  pasteChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+function runTextInsertion(text) {
   return new Promise((resolve, reject) => {
     if (process.platform === 'darwin') {
       const previousClipboard = clipboard.readText();
@@ -2277,6 +2348,7 @@ async function handleServiceEvent(event) {
         break;
       }
       setOverlayAudioLevel(payload.level);
+      setOverlayAudioBands(payload.bands);
       break;
     case 'partial':
       if (!isCurrentDictationSession(sessionId)) {
@@ -3115,6 +3187,161 @@ function shutdownChildren() {
   }
 }
 
+// ----- In-app auto-update (GitHub Releases via electron-updater) -----
+let autoUpdater = null;
+let autoUpdaterInitialized = false;
+let updateState = {
+  status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error | unsupported
+  availableVersion: null,
+  progress: 0,
+  message: '',
+};
+
+function getUpdateSnapshot() {
+  return {
+    ...updateState,
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    supported: app.isPackaged,
+  };
+}
+
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', getUpdateSnapshot());
+  }
+}
+
+function loadAutoUpdater() {
+  if (autoUpdaterInitialized) {
+    return autoUpdater;
+  }
+
+  autoUpdaterInitialized = true;
+
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+    // electron-updater resolves the correct asset for the running OS, and on macOS the
+    // correct CPU architecture (Intel vs Apple Silicon), from the published metadata.
+    autoUpdater.on('checking-for-update', () => setUpdateState({ status: 'checking', message: '' }));
+    autoUpdater.on('update-available', (info) =>
+      setUpdateState({
+        status: 'available',
+        availableVersion: (info && info.version) || null,
+        progress: 0,
+        message: '',
+      }),
+    );
+    autoUpdater.on('update-not-available', () =>
+      setUpdateState({ status: 'not-available', availableVersion: null, message: '' }),
+    );
+    autoUpdater.on('download-progress', (progress) =>
+      setUpdateState({
+        status: 'downloading',
+        progress: Math.max(0, Math.min(100, Math.round((progress && progress.percent) || 0))),
+      }),
+    );
+    autoUpdater.on('update-downloaded', (info) =>
+      setUpdateState({
+        status: 'downloaded',
+        availableVersion: (info && info.version) || updateState.availableVersion,
+        progress: 100,
+        message: '',
+      }),
+    );
+    autoUpdater.on('error', (error) =>
+      setUpdateState({ status: 'error', message: String((error && error.message) || error || 'Update error') }),
+    );
+  } catch (error) {
+    autoUpdater = null;
+    setUpdateState({ status: 'unsupported', message: String((error && error.message) || error) });
+  }
+
+  return autoUpdater;
+}
+
+ipcMain.handle('get-update-state', async () => getUpdateSnapshot());
+ipcMain.handle('check-for-updates', async () => {
+  if (!app.isPackaged) {
+    setUpdateState({
+      status: 'unsupported',
+      message: 'Updates are only available in the installed app.',
+    });
+    return getUpdateSnapshot();
+  }
+
+  const updater = loadAutoUpdater();
+  if (!updater) {
+    return getUpdateSnapshot();
+  }
+
+  try {
+    setUpdateState({ status: 'checking', message: '' });
+    await updater.checkForUpdates();
+  } catch (error) {
+    setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+  }
+
+  return getUpdateSnapshot();
+});
+ipcMain.handle('download-update', async () => {
+  const updater = loadAutoUpdater();
+  if (!updater) {
+    return getUpdateSnapshot();
+  }
+
+  try {
+    setUpdateState({ status: 'downloading', progress: 0, message: '' });
+    await updater.downloadUpdate();
+  } catch (error) {
+    setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+  }
+
+  return getUpdateSnapshot();
+});
+ipcMain.handle('install-update', async () => {
+  const updater = loadAutoUpdater();
+  if (!updater) {
+    return getUpdateSnapshot();
+  }
+
+  isQuitting = true;
+  // Defer so the IPC reply is delivered before the app starts quitting to install.
+  setImmediate(() => {
+    try {
+      updater.quitAndInstall();
+    } catch (error) {
+      isQuitting = false;
+      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+    }
+  });
+
+  return getUpdateSnapshot();
+});
+
+function scheduleStartupUpdateCheck() {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  const updater = loadAutoUpdater();
+  if (!updater) {
+    return;
+  }
+
+  setTimeout(() => {
+    updater
+      .checkForUpdates()
+      .catch((error) =>
+        setUpdateState({ status: 'error', message: String((error && error.message) || error) }),
+      );
+  }, 8000);
+}
+
 ipcMain.handle('get-state', async () => snapshotState());
 ipcMain.handle('update-settings', async (_event, patch) => applySettings(patch || {}));
 ipcMain.handle('reset-model-stats', async () => resetModelStats());
@@ -3161,6 +3388,7 @@ app.whenReady().then(() => {
   bootAudioController();
   bootDictationService();
   bootHotkeyListener();
+  scheduleStartupUpdateCheck();
 
   screen.on('display-added', positionOverlayWindow);
   screen.on('display-removed', positionOverlayWindow);

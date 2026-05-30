@@ -129,6 +129,7 @@ namespace OpenFlow.Audio
     public class AudioSessionSnapshot
     {
         public string InstanceId { get; set; }
+        public int ProcessId { get; set; }
         public float Volume { get; set; }
         public bool Muted { get; set; }
     }
@@ -162,6 +163,10 @@ namespace OpenFlow.Audio
             return (IAudioSessionManager2)manager;
         }
 
+        // Silence every audio session except the excluded process ids by MUTING them.
+        // Muting (instead of forcing the volume to 0) is fully reversible and never loses
+        // the original volume level, so an app can never get stuck at a low volume even if
+        // its audio session expires or changes identity before we restore it.
         public static List<AudioSessionSnapshot> DuckExcept(int[] excludedProcessIds, float duckVolume)
         {
             var excluded = new HashSet<int>(excludedProcessIds ?? new int[0]);
@@ -199,6 +204,16 @@ namespace OpenFlow.Audio
                             continue;
                         }
 
+                        bool originalMuted;
+                        Marshal.ThrowExceptionForHR(volume.GetMute(out originalMuted));
+
+                        // Leave sessions the user already muted untouched: we neither record
+                        // nor unmute them later, so we never fight the user's own choice.
+                        if (originalMuted)
+                        {
+                            continue;
+                        }
+
                         string instanceId;
                         Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
                         if (string.IsNullOrEmpty(instanceId))
@@ -207,27 +222,18 @@ namespace OpenFlow.Audio
                         }
 
                         float originalVolume;
-                        bool originalMuted;
                         Marshal.ThrowExceptionForHR(volume.GetMasterVolume(out originalVolume));
-                        Marshal.ThrowExceptionForHR(volume.GetMute(out originalMuted));
 
                         snapshots.Add(new AudioSessionSnapshot
                         {
                             InstanceId = instanceId,
+                            ProcessId = processId,
                             Volume = originalVolume,
-                            Muted = originalMuted,
+                            Muted = false,
                         });
 
                         var context = Guid.Empty;
-                        Marshal.ThrowExceptionForHR(volume.SetMasterVolume(duckVolume, ref context));
-                        if (originalMuted)
-                        {
-                            Marshal.ThrowExceptionForHR(volume.SetMute(true, ref context));
-                        }
-                        else
-                        {
-                            Marshal.ThrowExceptionForHR(volume.SetMute(false, ref context));
-                        }
+                        Marshal.ThrowExceptionForHR(volume.SetMute(true, ref context));
                     }
                     finally
                     {
@@ -255,14 +261,25 @@ namespace OpenFlow.Audio
             }
 
             var snapshotMap = new Dictionary<string, AudioSessionSnapshot>(StringComparer.OrdinalIgnoreCase);
+            // Also index by process id so that a session which expired and was recreated with a
+            // new instance identifier (very common once an app goes silent) is still restored.
+            var snapshotByPid = new Dictionary<int, AudioSessionSnapshot>();
             foreach (var snapshot in snapshots)
             {
-                if (snapshot == null || string.IsNullOrEmpty(snapshot.InstanceId) || snapshotMap.ContainsKey(snapshot.InstanceId))
+                if (snapshot == null)
                 {
                     continue;
                 }
 
-                snapshotMap[snapshot.InstanceId] = snapshot;
+                if (!string.IsNullOrEmpty(snapshot.InstanceId) && !snapshotMap.ContainsKey(snapshot.InstanceId))
+                {
+                    snapshotMap[snapshot.InstanceId] = snapshot;
+                }
+
+                if (snapshot.ProcessId > 0 && !snapshotByPid.ContainsKey(snapshot.ProcessId))
+                {
+                    snapshotByPid[snapshot.ProcessId] = snapshot;
+                }
             }
 
             IMMDevice device = null;
@@ -292,18 +309,28 @@ namespace OpenFlow.Audio
 
                         string instanceId;
                         Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
-                        if (string.IsNullOrEmpty(instanceId))
-                        {
-                            continue;
-                        }
 
-                        AudioSessionSnapshot snapshot;
-                        if (!snapshotMap.TryGetValue(instanceId, out snapshot))
+                        uint processIdRaw;
+                        Marshal.ThrowExceptionForHR(control2.GetProcessId(out processIdRaw));
+                        var processId = unchecked((int)processIdRaw);
+
+                        AudioSessionSnapshot snapshot = null;
+                        if (!string.IsNullOrEmpty(instanceId))
+                        {
+                            snapshotMap.TryGetValue(instanceId, out snapshot);
+                        }
+                        if (snapshot == null && processId > 0)
+                        {
+                            snapshotByPid.TryGetValue(processId, out snapshot);
+                        }
+                        if (snapshot == null)
                         {
                             continue;
                         }
 
                         var context = Guid.Empty;
+                        // Restore the recorded volume (covers stale snapshots saved by older
+                        // versions that lowered the volume) and always lift our mute.
                         Marshal.ThrowExceptionForHR(volume.SetMasterVolume(snapshot.Volume, ref context));
                         Marshal.ThrowExceptionForHR(volume.SetMute(snapshot.Muted, ref context));
                     }
@@ -354,13 +381,16 @@ namespace OpenFlow.Audio
                         Marshal.ThrowExceptionForHR(volume.GetMasterVolume(out currentVolume));
                         Marshal.ThrowExceptionForHR(volume.GetMute(out currentMuted));
 
-                        if (currentVolume > 0.0001f)
+                        if (currentVolume > 0.0001f && !currentMuted)
                         {
                             continue;
                         }
 
                         var context = Guid.Empty;
-                        Marshal.ThrowExceptionForHR(volume.SetMasterVolume(restoreVolume, ref context));
+                        if (currentVolume <= 0.0001f)
+                        {
+                            Marshal.ThrowExceptionForHR(volume.SetMasterVolume(restoreVolume, ref context));
+                        }
                         Marshal.ThrowExceptionForHR(volume.SetMute(false, ref context));
                         recovered++;
                     }
@@ -456,6 +486,7 @@ function Save-SnapshotState {
     $payload = @($Snapshots | ForEach-Object {
         @{
             InstanceId = $_.InstanceId
+            ProcessId = $_.ProcessId
             Volume = $_.Volume
             Muted = $_.Muted
         }
@@ -478,6 +509,9 @@ function Load-SnapshotState {
     return @($items | ForEach-Object {
   $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
         $snapshot.InstanceId = [string]$_.InstanceId
+        if ($_.PSObject.Properties.Name -contains 'ProcessId') {
+            $snapshot.ProcessId = [int]$_.ProcessId
+        }
         $snapshot.Volume = [float]$_.Volume
         $snapshot.Muted = [bool]$_.Muted
         $snapshot

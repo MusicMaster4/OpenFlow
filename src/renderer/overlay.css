@@ -60,12 +60,12 @@ html, body {
   transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.1s ease;
 }
 
+/* Keep the ready state on the same rounded pill silhouette. A drop shadow here would
+   spill past the pill and get clipped by the transparent window into a dark rectangle
+   in the corners, so the pill keeps its normal shadow only. */
 .overlay-shell[data-feedback='ready'] .overlay-pill {
   background: var(--overlay-bg);
-  box-shadow:
-    var(--overlay-shadow),
-    0 0 0 1px var(--overlay-ready-ring),
-    0 10px 22px var(--overlay-ready-shadow);
+  box-shadow: var(--overlay-shadow);
 }
 
 .overlay-pill:active {
@@ -107,17 +107,19 @@ html, body {
   transition: background-color 0.3s ease;
 }
 
-/* Audio wave */
+/* Audio wave: 11 thin bars, each driven by a slice of the audio spectrum
+   (lows on the left, highs on the right). 11 x 2px + 10 x 2px gaps = ~42px,
+   so it keeps roughly the same footprint as the previous 5-bar wave. */
 .overlay-wave {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px; /* Whole number */
+  gap: 2px; /* Whole number */
   height: 24px;
 }
 
 .overlay-wave span {
-  width: 4px; /* Whole number to prevent subpixel rendering issues */
+  width: 2px; /* Whole number to prevent subpixel rendering issues */
   height: 4px;
   border-radius: 999px;
   background: var(--overlay-wave);

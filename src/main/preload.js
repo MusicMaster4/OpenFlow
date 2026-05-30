@@ -13,4 +13,16 @@ contextBridge.exposeInMainWorld('flowLocal', {
       ipcRenderer.removeListener('app-state', listener);
     };
   },
+  getUpdateState: () => ipcRenderer.invoke('get-update-state'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('update-status', listener);
+
+    return () => {
+      ipcRenderer.removeListener('update-status', listener);
+    };
+  },
 });

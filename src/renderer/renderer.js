@@ -63,16 +63,20 @@ const TRANSLATIONS = {
     close: 'Close',
     noNotes: 'No notes.',
     dictionaryCopy: 'Replace terms automatically in the final text.',
-    dictionarySources: 'Rule inputs',
+    dictionaryFormIntro:
+      'Create a rule: anything on the left is automatically rewritten to the text on the right.',
+    dictionarySources: 'When you say',
     dictionarySourcesPlaceholder: 'One variation per line\nopen flow\nopenflow',
-    dictionarySourcesHint: 'Add as many variations as needed. Use one entry per line.',
-    dictionaryTarget: 'Final replacement',
+    dictionarySourcesHint: 'One variation per line — every line becomes the replacement.',
+    dictionaryTarget: 'Replace with',
     dictionaryTargetPlaceholder: 'Example: OpenFlow',
+    dictionaryTargetHint: 'The exact text inserted into your transcriptions.',
+    dictionaryApplyTo: 'Apply to',
     activeLanguages: 'Active languages',
     cancelEditing: 'Cancel editing',
     addRule: 'Add rule',
     saveRule: 'Save rule',
-    activeRules: 'Active rules',
+    activeRules: 'Your rules',
     dictionaryRulesCopy: 'Replacement happens before the text enters history and the active field.',
     showRules: 'Show rules',
     hideRules: 'Hide rules',
@@ -94,6 +98,19 @@ const TRANSLATIONS = {
     switchingStatusHint: '',
     errorStatusTitle: 'Something needs attention',
     errorStatusHint: 'Check the system diagnostics below if this keeps happening.',
+    softwareUpdate: 'Software update',
+    softwareUpdateCopy: 'Install the newest OpenFlow build straight from inside the app.',
+    checkForUpdates: 'Check for updates',
+    downloadUpdate: 'Download update',
+    installUpdate: 'Restart & install',
+    updateIdle: 'Check whether a newer version is available.',
+    updateChecking: 'Checking for updates...',
+    updateUpToDate: "You're on the latest version.",
+    updateAvailable: 'Version {version} is available to download.',
+    updateDownloading: 'Downloading update... {percent}%',
+    updateDownloaded: 'Version {version} is ready. Restart to finish installing.',
+    updateError: 'Update failed: {message}',
+    updateUnsupported: 'Updates are available only in the installed app.',
   },
   'pt-BR': {
     appTagline: 'Escreva na velocidade do pensamento.',
@@ -145,16 +162,20 @@ const TRANSLATIONS = {
     close: 'Fechar',
     noNotes: 'Sem observações.',
     dictionaryCopy: 'Troque termos automaticamente no texto final.',
-    dictionarySources: 'Entradas da regra',
+    dictionaryFormIntro:
+      'Crie uma regra: tudo o que estiver à esquerda é reescrito automaticamente para o texto à direita.',
+    dictionarySources: 'Quando você disser',
     dictionarySourcesPlaceholder: 'Uma variação por linha\nopen flow\nopenflow',
-    dictionarySourcesHint: 'Adicione quantas variações quiser. Use uma entrada por linha.',
-    dictionaryTarget: 'Substituição final',
+    dictionarySourcesHint: 'Uma variação por linha — cada linha vira a substituição.',
+    dictionaryTarget: 'Substituir por',
     dictionaryTargetPlaceholder: 'Ex.: OpenFlow',
+    dictionaryTargetHint: 'O texto exato inserido nas suas transcrições.',
+    dictionaryApplyTo: 'Aplicar em',
     activeLanguages: 'Idiomas ativos',
     cancelEditing: 'Cancelar edição',
     addRule: 'Adicionar regra',
     saveRule: 'Salvar regra',
-    activeRules: 'Regras ativas',
+    activeRules: 'Suas regras',
     dictionaryRulesCopy: 'A substituição acontece antes do texto entrar no histórico e no campo ativo.',
     showRules: 'Mostrar regras',
     hideRules: 'Ocultar regras',
@@ -176,6 +197,19 @@ const TRANSLATIONS = {
     switchingStatusHint: '',
     errorStatusTitle: 'Algo precisa de atencao',
     errorStatusHint: 'Se isso continuar, verifique o diagnostico do sistema logo abaixo.',
+    softwareUpdate: 'Atualização do app',
+    softwareUpdateCopy: 'Instale a versão mais recente do OpenFlow direto pelo app.',
+    checkForUpdates: 'Procurar atualizações',
+    downloadUpdate: 'Baixar atualização',
+    installUpdate: 'Reiniciar e instalar',
+    updateIdle: 'Verifique se há uma versão mais nova disponível.',
+    updateChecking: 'Procurando atualizações...',
+    updateUpToDate: 'Você está na versão mais recente.',
+    updateAvailable: 'A versão {version} está disponível para download.',
+    updateDownloading: 'Baixando atualização... {percent}%',
+    updateDownloaded: 'Versão {version} pronta. Reinicie para concluir a instalação.',
+    updateError: 'Falha na atualização: {message}',
+    updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
   },
 };
 
@@ -278,8 +312,6 @@ const els = {
   dictionaryLangEnLabel: document.getElementById('dictionary-lang-en-label'),
   dictionaryList: document.getElementById('dictionary-list'),
   dictionaryCount: document.getElementById('dictionary-count'),
-  toggleDictionaryRules: document.getElementById('toggle-dictionary-rules'),
-  dictionaryRulesBody: document.getElementById('dictionary-rules-body'),
   dictionarySearch: document.getElementById('dictionary-search'),
   cancelDictionaryEdit: document.getElementById('cancel-dictionary-edit'),
   submitDictionaryRule: document.getElementById('submit-dictionary-rule'),
@@ -296,6 +328,11 @@ const els = {
   themeRadios: document.querySelectorAll('input[name="theme"]'),
   interfaceLanguageSearch: document.getElementById('interface-language-search'),
   interfaceLanguageList: document.getElementById('interface-language-list'),
+  updateVersion: document.getElementById('update-version'),
+  updateStatusText: document.getElementById('update-status-text'),
+  updateProgress: document.getElementById('update-progress'),
+  updateProgressBar: document.getElementById('update-progress-bar'),
+  updateAction: document.getElementById('update-action'),
   translatable: document.querySelectorAll('[data-i18n]'),
   translatablePlaceholders: document.querySelectorAll('[data-i18n-placeholder]'),
 };
@@ -308,10 +345,10 @@ let settingsCloseTimer = null;
 let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
 let detectionLanguagesExpanded = false;
-let dictionaryRulesExpanded = false;
 let editingDictionaryRuleId = null;
 let toastHideTimer = null;
 let dictionaryFilter = '';
+let lastUpdate = { status: 'idle', version: null, availableVersion: null, progress: 0, message: '' };
 
 const SETTINGS_CLOSE_DELAY_MS = 500;
 const TOAST_HIDE_DELAY_MS = 3200;
@@ -594,8 +631,7 @@ function applyTranslations() {
 
   els.dictionaryLangPtLabel.textContent = capitalizeLanguageLabel(langName('pt'));
   els.dictionaryLangEnLabel.textContent = capitalizeLanguageLabel(langName('en'));
-  els.submitDictionaryRule.textContent = editingDictionaryRuleId ? t('saveRule') : t('addRule');
-  els.toggleDictionaryRules.textContent = dictionaryRulesExpanded ? t('hideRules') : t('showRules');
+  updateDictionaryFormMode();
   const dictionarySearchLabel = els.dictionarySearch.previousElementSibling;
   if (dictionarySearchLabel) {
     dictionarySearchLabel.textContent = t('dictionarySearchLabel');
@@ -603,6 +639,7 @@ function applyTranslations() {
   els.dictionarySearch.setAttribute('placeholder', t('dictionarySearchPlaceholder'));
   updateHistoryCopy();
   updateHistorySettingsCopy();
+  renderUpdateState();
 }
 
 function renderUsageSummary(summary = {}) {
@@ -719,6 +756,12 @@ function renderDictionary(entries) {
   const rulePlural = locale() === 'pt-BR' ? 'regras' : 'rules';
 
   els.dictionaryCount.textContent = countLabel(list.length, ruleSingular, rulePlural);
+
+  const searchContainer = els.dictionarySearch.closest('.dictionary-search');
+  if (searchContainer) {
+    searchContainer.classList.toggle('hidden', list.length === 0);
+  }
+
   if (list.length === 0) {
     els.dictionaryList.innerHTML = `<div class="history-empty">${esc(t('noRules'))}</div>`;
     return;
@@ -756,14 +799,10 @@ function renderDictionary(entries) {
     .join('');
 }
 
-function setDictionaryRulesExpanded(open) {
-  dictionaryRulesExpanded = Boolean(open);
-  els.dictionaryRulesBody.classList.toggle('hidden', !dictionaryRulesExpanded);
-  els.toggleDictionaryRules.setAttribute('aria-expanded', String(dictionaryRulesExpanded));
-  els.toggleDictionaryRules.textContent = dictionaryRulesExpanded ? t('hideRules') : t('showRules');
-  if (dictionaryRulesExpanded) {
-    els.dictionarySearch.focus();
-  }
+function updateDictionaryFormMode() {
+  const editing = Boolean(editingDictionaryRuleId);
+  els.submitDictionaryRule.textContent = editing ? t('saveRule') : t('addRule');
+  els.cancelDictionaryEdit.classList.toggle('hidden', !editing);
 }
 
 function renderModels(state) {
@@ -798,6 +837,75 @@ function renderModels(state) {
       renderState(await window.flowLocal.updateSettings({ model: button.getAttribute('data-model') }));
     });
   }
+}
+
+function describeUpdate(update) {
+  switch (update?.status) {
+    case 'checking':
+      return { text: t('updateChecking'), action: 'check', busy: true, error: false };
+    case 'available':
+      return {
+        text: template('updateAvailable', { version: update.availableVersion || '' }),
+        action: 'download',
+        busy: false,
+        error: false,
+      };
+    case 'downloading':
+      return {
+        text: template('updateDownloading', { percent: Math.round(update.progress || 0) }),
+        action: 'download',
+        busy: true,
+        error: false,
+      };
+    case 'downloaded':
+      return {
+        text: template('updateDownloaded', { version: update.availableVersion || '' }),
+        action: 'install',
+        busy: false,
+        error: false,
+      };
+    case 'not-available':
+      return { text: t('updateUpToDate'), action: 'check', busy: false, error: false };
+    case 'unsupported':
+      return { text: t('updateUnsupported'), action: 'check', busy: false, error: false };
+    case 'error':
+      return {
+        text: template('updateError', { message: update.message || '' }),
+        action: 'check',
+        busy: false,
+        error: true,
+      };
+    default:
+      return { text: t('updateIdle'), action: 'check', busy: false, error: false };
+  }
+}
+
+function renderUpdateState(update = lastUpdate) {
+  lastUpdate = update || lastUpdate;
+  if (!els.updateAction) {
+    return;
+  }
+
+  const info = describeUpdate(lastUpdate);
+  const version = lastUpdate.version ? `v${lastUpdate.version}` : 'v--';
+
+  els.updateVersion.textContent = version;
+  els.updateStatusText.textContent = info.text;
+  els.updateStatusText.classList.toggle('update-card__status--error', info.error);
+
+  const buttonLabel =
+    info.action === 'download'
+      ? t('downloadUpdate')
+      : info.action === 'install'
+        ? t('installUpdate')
+        : t('checkForUpdates');
+  els.updateAction.textContent = buttonLabel;
+  els.updateAction.dataset.updateAction = info.action;
+  els.updateAction.disabled = info.busy;
+
+  const showProgress = lastUpdate.status === 'downloading';
+  els.updateProgress.classList.toggle('hidden', !showProgress);
+  els.updateProgressBar.style.width = `${Math.max(0, Math.min(100, Math.round(lastUpdate.progress || 0)))}%`;
 }
 
 function hideToast() {
@@ -990,15 +1098,25 @@ function setupHandlers() {
   els.resetStats.addEventListener('click', async () => {
     renderState(await window.flowLocal.resetModelStats());
   });
+
+  els.updateAction.addEventListener('click', async () => {
+    const action = els.updateAction.dataset.updateAction || 'check';
+    if (action === 'download') {
+      renderUpdateState(await window.flowLocal.downloadUpdate());
+      return;
+    }
+    if (action === 'install') {
+      await window.flowLocal.installUpdate();
+      return;
+    }
+    renderUpdateState(await window.flowLocal.checkForUpdates());
+  });
   els.openSettings.addEventListener('click', () => setSettingsOpen(true));
   els.closeSettings.addEventListener('click', () => setSettingsOpen(false));
   els.settingsBackdrop.addEventListener('click', () => setSettingsOpen(false));
   els.openDictionary.addEventListener('click', () => setDictionaryOpen(true));
   els.closeDictionary.addEventListener('click', () => setDictionaryOpen(false));
   els.dictionaryBackdrop.addEventListener('click', () => setDictionaryOpen(false));
-  els.toggleDictionaryRules.addEventListener('click', () => {
-    setDictionaryRulesExpanded(!dictionaryRulesExpanded);
-  });
   els.dictionarySearch.addEventListener('input', () => {
     dictionaryFilter = els.dictionarySearch.value || '';
     if (lastState) renderDictionary(lastState.dictionaryEntries);
@@ -1105,7 +1223,14 @@ async function bootstrap() {
   initTheme();
   renderState(await window.flowLocal.getState());
   window.flowLocal.onStateUpdate((state) => renderState(state));
+  window.flowLocal.onUpdateStatus((update) => renderUpdateState(update));
   setupHandlers();
+
+  try {
+    renderUpdateState(await window.flowLocal.getUpdateState());
+  } catch (_error) {
+    // Update channel is optional; ignore if unavailable.
+  }
 }
 
 bootstrap();
