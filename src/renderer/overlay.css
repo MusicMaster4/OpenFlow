@@ -131,25 +131,27 @@ html, body {
     background-color 0.3s ease;
 }
 
-/* Loading state */
+/* Loading state: 5 dots in the same footprint as the old 3 (5 x 4px + 4 x 3px = 32px). */
 .overlay-loader {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 3px;
 }
 
 .overlay-loader span {
-  width: 6px; /* Whole number */
-  height: 6px; /* Whole number */
+  width: 4px; /* Whole number */
+  height: 4px; /* Whole number */
   border-radius: 50%;
   background: var(--overlay-wave);
   animation: bounce-dot 0.6s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
   opacity: 0.8;
 }
 
-.overlay-loader span:nth-child(2) { animation-delay: 0.15s; }
-.overlay-loader span:nth-child(3) { animation-delay: 0.3s; }
+.overlay-loader span:nth-child(2) { animation-delay: 0.12s; }
+.overlay-loader span:nth-child(3) { animation-delay: 0.24s; }
+.overlay-loader span:nth-child(4) { animation-delay: 0.36s; }
+.overlay-loader span:nth-child(5) { animation-delay: 0.48s; }
 
 .overlay-ready-sequence {
   position: absolute;

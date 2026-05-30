@@ -111,6 +111,8 @@ const TRANSLATIONS = {
     updateDownloaded: 'Version {version} is ready. Restart to finish installing.',
     updateError: 'Update failed: {message}',
     updateUnsupported: 'Updates are available only in the installed app.',
+    updateNotPackaged:
+      'This installed version does not support in-app updates yet. Install the latest build once to enable them.',
   },
   'pt-BR': {
     appTagline: 'Escreva na velocidade do pensamento.',
@@ -210,6 +212,8 @@ const TRANSLATIONS = {
     updateDownloaded: 'Versão {version} pronta. Reinicie para concluir a instalação.',
     updateError: 'Falha na atualização: {message}',
     updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
+    updateNotPackaged:
+      'Esta versão instalada ainda não suporta atualização pelo app. Instale a versão mais recente uma vez para habilitar.',
   },
 };
 
@@ -868,13 +872,19 @@ function describeUpdate(update) {
       return { text: t('updateUpToDate'), action: 'check', busy: false, error: false };
     case 'unsupported':
       return { text: t('updateUnsupported'), action: 'check', busy: false, error: false };
-    case 'error':
+    case 'error': {
+      const message = update.message || '';
+      // An old install (built before auto-update was wired) has no app-update.yml.
+      if (/app-update\.yml/i.test(message)) {
+        return { text: t('updateNotPackaged'), action: 'check', busy: false, error: false };
+      }
       return {
-        text: template('updateError', { message: update.message || '' }),
+        text: template('updateError', { message }),
         action: 'check',
         busy: false,
         error: true,
       };
+    }
     default:
       return { text: t('updateIdle'), action: 'check', busy: false, error: false };
   }
