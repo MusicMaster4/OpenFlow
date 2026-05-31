@@ -262,6 +262,7 @@ const MAIN_TRANSLATIONS = {
 let mainWindow = null;
 let overlayWindow = null;
 let tray = null;
+let trayMenuSignature = '';
 let serviceProcess = null;
 let serviceReader = null;
 let hotkeyProcess = null;
@@ -284,10 +285,12 @@ let captureMuteDepth = 0;
 let suppressStartSoundUntil = 0;
 let suppressStartRequestsUntil = 0;
 let ignoreNextHotkeyRelease = false;
+let lastOverlayAudioBands = [];
 let lastHotkeyActionHandling = {
   suppressEscape: null,
   suppressSpace: null,
 };
+let lastAudioControllerConfigSignature = '';
 let isQuitting = false;
 let shouldStartHiddenOnLaunch = process.argv.some((arg) => arg === '--background');
 
@@ -1349,7 +1352,7 @@ function normalizePersistedState(payload) {
         defaults.overlayDynamicSize,
       ),
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
-      overlayPosition: defaults.overlayPosition,
+      overlayPosition: normalizeOverlayPosition(preferencesSource.overlayPosition),
     },
     modelStats: normalizeStats(source.modelStats),
     history: applyHistoryRetention(normalizeHistory(source.history), keepAllTranscriptions),
@@ -1400,7 +1403,7 @@ function savePersistentState() {
       overlayScale: state.overlayScale,
       overlayDynamicSize: state.overlayDynamicSize,
       dictionaryEntries: state.dictionaryEntries,
-      overlayPosition: defaults.overlayPosition,
+      overlayPosition: normalizeOverlayPosition(state.overlayPosition),
     },
     modelStats: state.modelStats,
     history: applyHistoryRetention(state.history, state.keepAllTranscriptions),
@@ -1638,13 +1641,14 @@ function snapshotState() {
 function setState(patch) {
   Object.assign(state, patch);
   syncHotkeyActionHandling();
+  const snapshot = snapshotState();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('app-state', snapshotState());
+    mainWindow.webContents.send('app-state', snapshot);
   }
 
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.webContents.send('app-state', snapshotState());
+    overlayWindow.webContents.send('app-state', snapshot);
     syncOverlayWindow();
   }
 
@@ -1722,16 +1726,22 @@ function createTray() {
   tray.on('double-click', () => {
     showMainWindow();
   });
-  refreshTrayMenu();
+  refreshTrayMenu(true);
   return tray;
 }
 
-function refreshTrayMenu() {
+function refreshTrayMenu(force = false) {
   if (!tray) {
     return;
   }
 
   const visible = hasVisibleMainWindow();
+  const signature = `${visible ? 'visible' : 'hidden'}:${state.interfaceLanguage}`;
+  if (!force && signature === trayMenuSignature) {
+    return;
+  }
+  trayMenuSignature = signature;
+
   const menu = Menu.buildFromTemplate([
     {
       label: translateMain(visible ? 'trayHideApp' : 'trayOpenApp'),
@@ -1771,6 +1781,9 @@ function setOverlayAudioLevel(level) {
   const nextLevel = clamp(Number(level) || 0, 0, 1);
   const changed = Math.abs(nextLevel - state.audioLevel) >= 0.015 || (nextLevel === 0) !== (state.audioLevel === 0);
   state.audioLevel = nextLevel;
+  if (nextLevel === 0) {
+    lastOverlayAudioBands = [];
+  }
 
   if (!changed || !overlayWindow || overlayWindow.isDestroyed()) {
     return;
@@ -1784,11 +1797,22 @@ function setOverlayAudioBands(bands) {
     return;
   }
 
+  const normalizedBands = bands.map((value) => clamp(Number(value) || 0, 0, 3));
+  const changed =
+    normalizedBands.length !== lastOverlayAudioBands.length ||
+    normalizedBands.some(
+      (value, index) => Math.abs(value - (lastOverlayAudioBands[index] || 0)) >= 0.08,
+    );
+  if (!changed) {
+    return;
+  }
+  lastOverlayAudioBands = normalizedBands;
+
   if (!overlayWindow || overlayWindow.isDestroyed()) {
     return;
   }
 
-  overlayWindow.webContents.send('overlay-audio-bands', bands);
+  overlayWindow.webContents.send('overlay-audio-bands', normalizedBands);
 }
 
 function getServiceEnv() {
@@ -2192,11 +2216,18 @@ function collectAppAudioPids() {
   return [...pids];
 }
 
-function syncAudioControllerConfig() {
-  sendAudioCommand('configure', {
+function syncAudioControllerConfig(force = false) {
+  const payload = {
     excluded_pids: collectAppAudioPids(),
     duck_volume: 0,
-  });
+  };
+  const signature = JSON.stringify(payload);
+  if (!force && signature === lastAudioControllerConfigSignature) {
+    return;
+  }
+
+  lastAudioControllerConfigSignature = signature;
+  sendAudioCommand('configure', payload);
 }
 
 function sendAudioCommand(type, payload = {}) {
@@ -2474,7 +2505,7 @@ function recordModelTiming(modelId, transcriptionMs) {
   const normalizedModel = normalizeModel(modelId);
   const ms = Number(transcriptionMs) || 0;
   if (!ms) {
-    return;
+    return state.modelStats;
   }
 
   const current = state.modelStats[normalizedModel] || {
@@ -2490,13 +2521,10 @@ function recordModelTiming(modelId, transcriptionMs) {
   };
   updated.averageMs = updated.totalMs / updated.count;
 
-  setState({
-    modelStats: {
-      ...state.modelStats,
-      [normalizedModel]: updated,
-    },
-  });
-  savePersistentState();
+  return {
+    ...state.modelStats,
+    [normalizedModel]: updated,
+  };
 }
 
 function classifyWarning(message) {
@@ -2610,6 +2638,7 @@ async function handleServiceEvent(event) {
       };
       const history = applyHistoryRetention([entry, ...state.history], state.keepAllTranscriptions);
       const usageStats = recordUsage(state.usageStats, entry);
+      const modelStats = recordModelTiming(payload.model || state.model, payload.transcription_ms);
 
       setState({
         latestFinal: resolvedText,
@@ -2617,14 +2646,13 @@ async function handleServiceEvent(event) {
         partial: '',
         history,
         usageStats,
+        modelStats,
         dictationSessionId: sessionId,
         pendingPaste: true,
         phase: 'transcribing',
         error: '',
       });
       savePersistentState();
-
-      recordModelTiming(payload.model || state.model, payload.transcription_ms);
 
       try {
         await insertTextIntoFocusedApp(pasteText);
@@ -2750,7 +2778,7 @@ function handleAudioControllerEvent(event) {
 
   switch (event.type) {
     case 'ready':
-      syncAudioControllerConfig();
+      syncAudioControllerConfig(true);
       if (captureMuteDepth > 0) {
         sendAudioCommand('capture-begin');
       }
@@ -2935,6 +2963,7 @@ function bootAudioController() {
     return;
   }
 
+  lastAudioControllerConfigSignature = '';
   const powershellScript = getSystemAudioControllerScriptPath();
   const localToken = ++audioToken;
   const localProcess = spawn(
@@ -3840,7 +3869,7 @@ app.whenReady().then(() => {
     overlayScale: persistedState.preferences.overlayScale,
     overlayDynamicSize: persistedState.preferences.overlayDynamicSize,
     dictionaryEntries: persistedState.preferences.dictionaryEntries,
-    overlayPosition: defaults.overlayPosition,
+    overlayPosition: persistedState.preferences.overlayPosition,
   });
   shouldStartHiddenOnLaunch =
     shouldStartHiddenOnLaunch || Boolean(app.getLoginItemSettings().wasOpenedAsHidden);

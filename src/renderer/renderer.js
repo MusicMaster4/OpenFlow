@@ -423,6 +423,15 @@ let toastHideTimer = null;
 let dictionaryFilter = '';
 let lastUpdate = { status: 'idle', version: null, availableVersion: null, progress: 0, message: '' };
 let installAfterDownload = false;
+const renderCache = {
+  translations: '',
+  detectionLanguages: '',
+  interfaceLanguages: '',
+  history: '',
+  dictionary: '',
+  models: '',
+  usage: '',
+};
 
 const SETTINGS_CLOSE_DELAY_MS = 500;
 const TOAST_HIDE_DELAY_MS = 3200;
@@ -523,6 +532,19 @@ function buildDetectionLanguageOption(code, selected, compact = false) {
 function renderDetectionLanguages() {
   const supported = getSupportedDetectionLanguages();
   const selected = new Set(getSelectedDetectionLanguages());
+  const query = String(els.detectionLanguageSearch.value || '').trim().toLocaleLowerCase(locale());
+  const signature = [
+    locale(),
+    detectionLanguagesExpanded ? 'expanded' : 'compact',
+    query,
+    supported.join(','),
+    [...selected].sort().join(','),
+  ].join('|');
+  if (renderCache.detectionLanguages === signature) {
+    return;
+  }
+  renderCache.detectionLanguages = signature;
+
   const defaultLanguages = DEFAULT_DETECTION_LANGUAGES.filter((code) => supported.includes(code));
   const extraLanguages = supported
     .filter((code) => !defaultLanguages.includes(code))
@@ -532,7 +554,6 @@ function renderDetectionLanguages() {
       nativeName: capitalizeLanguageLabel(langName(code, code), code),
     }))
     .sort((left, right) => left.label.localeCompare(right.label, locale()));
-  const query = String(els.detectionLanguageSearch.value || '').trim().toLocaleLowerCase(locale());
   const filteredExtras = extraLanguages.filter((item) => {
     const searchText = `${item.code} ${item.label} ${item.nativeName}`.toLocaleLowerCase(locale());
     return selected.has(item.code) || !query || searchText.includes(query);
@@ -708,6 +729,22 @@ function updateHistorySettingsCopy() {
 }
 
 function applyTranslations() {
+  const signature = [
+    locale(),
+    lastState?.historyLimit || '',
+    lastState?.keepAllTranscriptions ? 'all' : 'limited',
+    editingDictionaryRuleId || '',
+    lastUpdate?.status || '',
+    lastUpdate?.version || '',
+    lastUpdate?.availableVersion || '',
+    lastUpdate?.progress || 0,
+    lastUpdate?.message || '',
+  ].join('|');
+  if (renderCache.translations === signature) {
+    return;
+  }
+  renderCache.translations = signature;
+
   document.documentElement.lang = locale();
   document.documentElement.dir = locale() === 'ar' ? 'rtl' : 'ltr';
   localStorage.setItem('openflow-interface-language', locale());
@@ -734,6 +771,18 @@ function applyTranslations() {
 }
 
 function renderUsageSummary(summary = {}) {
+  const signature = [
+    locale(),
+    summary.streakDays || 0,
+    summary.totalDays || 0,
+    summary.totalWords || 0,
+    Math.round(summary.averageWpm || 0),
+  ].join('|');
+  if (renderCache.usage === signature) {
+    return;
+  }
+  renderCache.usage = signature;
+
   const singularDay = locale() === 'pt-BR' ? 'dia' : 'day';
   const pluralDay = locale() === 'pt-BR' ? 'dias' : 'days';
   const wordsLabel = locale() === 'pt-BR' ? 'palavras' : 'words';
@@ -747,6 +796,12 @@ function renderUsageSummary(summary = {}) {
 
 function renderInterfaceLanguages() {
   const query = String(els.interfaceLanguageSearch.value || '').trim().toLocaleLowerCase(locale());
+  const signature = `${locale()}|${query}`;
+  if (renderCache.interfaceLanguages === signature) {
+    return;
+  }
+  renderCache.interfaceLanguages = signature;
+
   const items = SUPPORTED_INTERFACE_LANGUAGES
     .map((code) => ({
       code,
@@ -782,6 +837,23 @@ function renderInterfaceLanguages() {
 
 function renderHistory(history, total) {
   const list = Array.isArray(history) ? history : [];
+  const signature = [
+    locale(),
+    historyFilter.trim(),
+    total || 0,
+    list.length,
+    list
+      .map(
+        (entry) =>
+          `${entry.timestamp || ''}:${entry.model || ''}:${entry.language || ''}:${entry.transcriptionMs || 0}:${entry.wordCount || 0}:${entry.text || ''}`,
+      )
+      .join('|'),
+  ].join('|');
+  if (renderCache.history === signature) {
+    return;
+  }
+  renderCache.history = signature;
+
   const query = historyFilter.trim().toLocaleLowerCase(locale());
   renderedHistory = !query
     ? list
@@ -836,6 +908,22 @@ function renderHistory(history, total) {
 
 function renderDictionary(entries) {
   const list = Array.isArray(entries) ? entries : [];
+  const signature = [
+    locale(),
+    dictionaryFilter.trim(),
+    list.length,
+    list
+      .map(
+        (entry) =>
+          `${entry.id || ''}:${(entry.sources || []).join(',')}:${entry.target || ''}:${(entry.languages || []).join(',')}`,
+      )
+      .join('|'),
+  ].join('|');
+  if (renderCache.dictionary === signature) {
+    return;
+  }
+  renderCache.dictionary = signature;
+
   const query = dictionaryFilter.trim().toLocaleLowerCase(locale());
   const filteredList = !query
     ? list
@@ -897,6 +985,18 @@ function updateDictionaryFormMode() {
 }
 
 function renderModels(state) {
+  const signature = [
+    locale(),
+    state.model,
+    state.phase,
+    state.switchingModel ? 'switching' : 'steady',
+    JSON.stringify(state.modelStats || {}),
+  ].join('|');
+  if (renderCache.models === signature) {
+    return;
+  }
+  renderCache.models = signature;
+
   const stats = state.modelStats || {};
   const isBusy = state.switchingModel || state.phase === 'booting';
   const avgLabel = locale() === 'pt-BR' ? 'Média' : 'Avg';
