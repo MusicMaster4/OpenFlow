@@ -775,10 +775,46 @@ function formatShortcutForDisplay(shortcut, platform = process.platform) {
         return 'Space';
       }
 
+      const specialLabels = {
+        tab: 'Tab',
+        enter: 'Enter',
+        return: 'Enter',
+        backspace: 'Backspace',
+        delete: 'Delete',
+        del: 'Delete',
+        insert: 'Insert',
+        ins: 'Insert',
+        home: 'Home',
+        end: 'End',
+        pageup: 'PageUp',
+        pagedown: 'PageDown',
+        up: 'Up',
+        down: 'Down',
+        left: 'Left',
+        right: 'Right',
+      };
+      if (specialLabels[token]) {
+        return specialLabels[token];
+      }
+
+      if (/^f([1-9]|1[0-9]|2[0-4])$/.test(token)) {
+        return token.toUpperCase();
+      }
+
       return token.length === 1 ? token.toUpperCase() : token;
     });
 
   return labels.join('+');
+}
+
+function isElectronAcceleratorCompatible(shortcut) {
+  const tokens = String(shortcut || '')
+    .split('+')
+    .map((token) => normalizeShortcutToken(token))
+    .filter(Boolean);
+  const keys = tokens.filter((token) => !SHORTCUT_MODIFIER_SET.has(token));
+
+  return keys.length <= 1;
 }
 
 function shortcutToElectronAccelerator(shortcut) {
@@ -811,14 +847,42 @@ function shortcutToElectronAccelerator(shortcut) {
         return 'Shift';
       case 'space':
         return 'Space';
+      case 'tab':
+        return 'Tab';
       case 'escape':
       case 'esc':
         return 'Esc';
       case 'enter':
       case 'return':
         return 'Enter';
+      case 'backspace':
+        return 'Backspace';
+      case 'delete':
+      case 'del':
+        return 'Delete';
+      case 'insert':
+      case 'ins':
+        return 'Insert';
+      case 'home':
+        return 'Home';
+      case 'end':
+        return 'End';
+      case 'pageup':
+        return 'PageUp';
+      case 'pagedown':
+        return 'PageDown';
+      case 'up':
+        return 'Up';
+      case 'down':
+        return 'Down';
+      case 'left':
+        return 'Left';
+      case 'right':
+        return 'Right';
       default:
-        return token.length === 1 ? token.toUpperCase() : '';
+        if (token.length === 1) return token.toUpperCase();
+        if (/^f([1-9]|1[0-9]|2[0-4])$/.test(token)) return token.toUpperCase();
+        return '';
     }
   });
 
@@ -847,6 +911,16 @@ function normalizeShortcutToken(token) {
     commandorcontrol: process.platform === 'darwin' ? 'command' : 'ctrl',
     esc: 'escape',
     return: 'enter',
+    del: 'delete',
+    ins: 'insert',
+    pgup: 'pageup',
+    page_up: 'pageup',
+    pgdn: 'pagedown',
+    page_down: 'pagedown',
+    arrowup: 'up',
+    arrowdown: 'down',
+    arrowleft: 'left',
+    arrowright: 'right',
   };
   return aliases[value] || value;
 }
@@ -854,15 +928,26 @@ function normalizeShortcutToken(token) {
 function isValidShortcutKeyToken(token) {
   return (
     /^[a-z0-9]$/.test(token) ||
-    /^f([1-9]|1[0-2])$/.test(token) ||
+    /^f([1-9]|1[0-9]|2[0-4])$/.test(token) ||
     token === 'space' ||
-    token === 'enter'
+    token === 'enter' ||
+    token === 'tab' ||
+    token === 'backspace' ||
+    token === 'delete' ||
+    token === 'insert' ||
+    token === 'home' ||
+    token === 'end' ||
+    token === 'pageup' ||
+    token === 'pagedown' ||
+    token === 'up' ||
+    token === 'down' ||
+    token === 'left' ||
+    token === 'right'
   );
 }
 
 // Returns a cleaned, canonical shortcut string (e.g. "ctrl+alt+v") or the fallback when
-// the input cannot make a sane global shortcut. A valid shortcut is either a single key
-// with at least one modifier, or a pure combination of two or more modifiers.
+// the input cannot make a sane global shortcut. Esc is reserved for cancelling capture.
 function normalizeShortcut(input, fallback) {
   const rawTokens = String(input || '')
     .split('+')
@@ -894,12 +979,6 @@ function normalizeShortcut(input, fallback) {
     } else {
       return fallback;
     }
-  }
-
-  // A shortcut may hold at most one non-modifier key; a single key with no modifier (or a
-  // lone modifier) is allowed. Esc is rejected above because it is reserved for cancelling.
-  if (keys.length > 1) {
-    return fallback;
   }
 
   const orderedModifiers = SHORTCUT_MODIFIER_ORDER.filter((modifier) => modifiers.includes(modifier));
@@ -2768,6 +2847,11 @@ function togglePrimaryShortcutCapture() {
 function registerMainShortcut() {
   unregisterMainShortcut();
 
+  if (!isElectronAcceleratorCompatible(state.shortcut)) {
+    mainShortcutRegisteredViaElectron = false;
+    return false;
+  }
+
   const accelerator = shortcutToElectronAccelerator(state.shortcut);
   if (!accelerator) {
     setState({
@@ -2808,6 +2892,11 @@ function registerMainShortcut() {
 
 function registerPasteLastShortcut() {
   unregisterPasteLastShortcut();
+
+  if (!isElectronAcceleratorCompatible(state.pasteLastShortcut)) {
+    pasteLastRegisteredViaElectron = false;
+    return false;
+  }
 
   const accelerator = shortcutToElectronAccelerator(state.pasteLastShortcut);
   if (!accelerator) {

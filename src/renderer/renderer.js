@@ -410,6 +410,7 @@ let advancedCloseTimer = null;
 let capturingShortcutTarget = null;
 let captureHeldTokens = new Set();
 let captureBestTokens = [];
+let captureFinalizing = false;
 let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
 let detectionLanguagesExpanded = false;
@@ -589,11 +590,26 @@ function formatShortcut(shortcut, platform = 'win32') {
       if (token === 'shift') return 'Shift';
       if (token === 'space') return 'Space';
       if (token === 'enter') return 'Enter';
+      const specialLabels = {
+        tab: 'Tab',
+        backspace: 'Backspace',
+        delete: 'Delete',
+        insert: 'Insert',
+        home: 'Home',
+        end: 'End',
+        pageup: 'PageUp',
+        pagedown: 'PageDown',
+        up: 'Up',
+        down: 'Down',
+        left: 'Left',
+        right: 'Right',
+      };
+      if (specialLabels[token]) return specialLabels[token];
       if (token === 'alt' || token === 'option') return platform === 'darwin' ? 'Option' : 'Alt';
       if (token === 'windows' || token === 'super' || token === 'left windows' || token === 'right windows') {
         return platform === 'darwin' ? 'Command' : 'Win';
       }
-      if (/^f([1-9]|1[0-2])$/.test(token)) return token.toUpperCase();
+      if (/^f([1-9]|1[0-9]|2[0-4])$/.test(token)) return token.toUpperCase();
       return token.length === 1 ? token.toUpperCase() : token;
     })
     .join('+');
@@ -1111,6 +1127,31 @@ function setAdvancedOpen(open) {
 }
 
 const SHORTCUT_MODIFIER_TOKENS = ['ctrl', 'alt', 'shift', 'windows', 'command'];
+const SHORTCUT_KEY_ALIASES = {
+  ' ': 'space',
+  Spacebar: 'space',
+  Space: 'space',
+  Enter: 'enter',
+  Return: 'enter',
+  Tab: 'tab',
+  Backspace: 'backspace',
+  Delete: 'delete',
+  Del: 'delete',
+  Insert: 'insert',
+  Ins: 'insert',
+  Home: 'home',
+  End: 'end',
+  PageUp: 'pageup',
+  PageDown: 'pagedown',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  Up: 'up',
+  Down: 'down',
+  Left: 'left',
+  Right: 'right',
+};
 
 function shortcutTokenFromEvent(event) {
   const key = event.key;
@@ -1120,11 +1161,10 @@ function shortcutTokenFromEvent(event) {
   if (key === 'Meta' || key === 'OS') {
     return lastState?.platform === 'darwin' ? 'command' : 'windows';
   }
-  if (key === ' ' || key === 'Spacebar' || key === 'Space') return 'space';
-  if (key === 'Enter') return 'enter';
   if (key === 'Escape') return 'escape';
+  if (SHORTCUT_KEY_ALIASES[key]) return SHORTCUT_KEY_ALIASES[key];
   if (/^[a-zA-Z0-9]$/.test(key)) return key.toLowerCase();
-  if (/^F([1-9]|1[0-2])$/.test(key)) return key.toLowerCase();
+  if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key.toLowerCase();
   return null;
 }
 
@@ -1137,10 +1177,8 @@ function orderShortcutTokens(tokenSet) {
 function isValidCapturedShortcut(tokens) {
   if (!tokens.length) return false;
   const keys = tokens.filter((token) => !SHORTCUT_MODIFIER_TOKENS.includes(token));
-  // Esc stays reserved for cancelling, and a shortcut can hold at most one non-modifier
-  // key. Otherwise anything goes — a single key with no modifier is allowed.
+  // Esc stays reserved for cancelling. Other captured keys can be combined freely.
   if (keys.includes('escape')) return false;
-  if (keys.length > 1) return false;
   return true;
 }
 
@@ -1162,6 +1200,7 @@ function startShortcutCapture(target) {
   capturingShortcutTarget = target;
   captureHeldTokens = new Set();
   captureBestTokens = [];
+  captureFinalizing = false;
 
   const button = getCaptureButton(target);
   button.classList.add('shortcut-capture--recording');
@@ -1174,6 +1213,7 @@ function stopShortcutCapture() {
   capturingShortcutTarget = null;
   captureHeldTokens = new Set();
   captureBestTokens = [];
+  captureFinalizing = false;
 
   for (const button of [els.captureShortcut, els.capturePasteShortcut]) {
     if (button) button.classList.remove('shortcut-capture--recording');
@@ -1182,9 +1222,11 @@ function stopShortcutCapture() {
 }
 
 async function finalizeShortcutCapture() {
+  if (captureFinalizing) return;
   const target = capturingShortcutTarget;
   const tokens = captureBestTokens.slice();
   if (!target) return;
+  captureFinalizing = true;
 
   if (!isValidCapturedShortcut(tokens)) {
     showToast(t('invalidShortcut'));
@@ -1193,7 +1235,11 @@ async function finalizeShortcutCapture() {
   }
 
   stopShortcutCapture();
-  renderState(await window.flowLocal.updateSettings({ [target]: tokens.join('+') }));
+  try {
+    renderState(await window.flowLocal.updateSettings({ [target]: tokens.join('+') }));
+  } catch (error) {
+    showToast(error?.message || t('invalidShortcut'));
+  }
 }
 
 function handleShortcutCaptureKeydown(event) {
@@ -1229,7 +1275,7 @@ function handleShortcutCaptureKeyup(event) {
 
   const token = shortcutTokenFromEvent(event);
   if (token) captureHeldTokens.delete(token);
-  if (captureHeldTokens.size === 0 && captureBestTokens.length > 0) {
+  if (captureBestTokens.length > 0 && isValidCapturedShortcut(captureBestTokens)) {
     finalizeShortcutCapture();
   }
 }

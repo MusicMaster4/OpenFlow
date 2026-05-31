@@ -160,6 +160,16 @@ class HotkeyListener:
             "alt_r": "alt",
             "esc": "escape",
             "return": "enter",
+            "del": "delete",
+            "ins": "insert",
+            "pgup": "pageup",
+            "page_up": "pageup",
+            "pgdn": "pagedown",
+            "page_down": "pagedown",
+            "arrowup": "up",
+            "arrowdown": "down",
+            "arrowleft": "left",
+            "arrowright": "right",
         }
         return aliases.get(value, value)
 
@@ -197,6 +207,19 @@ class HotkeyListener:
             keyboard.Key.cmd_l: "command" if sys.platform == "darwin" else "windows",
             keyboard.Key.cmd_r: "command" if sys.platform == "darwin" else "windows",
             keyboard.Key.space: "space",
+            keyboard.Key.enter: "enter",
+            keyboard.Key.tab: "tab",
+            keyboard.Key.backspace: "backspace",
+            keyboard.Key.delete: "delete",
+            keyboard.Key.insert: "insert",
+            keyboard.Key.home: "home",
+            keyboard.Key.end: "end",
+            keyboard.Key.page_up: "pageup",
+            keyboard.Key.page_down: "pagedown",
+            keyboard.Key.up: "up",
+            keyboard.Key.down: "down",
+            keyboard.Key.left: "left",
+            keyboard.Key.right: "right",
             keyboard.Key.esc: "escape",
         }
         token = special_map.get(key)
@@ -204,6 +227,12 @@ class HotkeyListener:
             tokens.add(token)
             if token == "command" and sys.platform != "darwin":
                 tokens.add("windows")
+            return tokens
+
+        for index in range(1, 25):
+            if key == getattr(keyboard.Key, f"f{index}", None):
+                tokens.add(f"f{index}")
+                return tokens
         return tokens
 
     def _handle_press(self, key) -> None:
