@@ -3564,13 +3564,21 @@ function isMissingUpdateMetadataError(error) {
   return /(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message);
 }
 
-async function getLatestGithubReleaseVersion() {
+function getGithubReleaseVersion(release) {
+  return normalizeReleaseVersion((release && (release.tag_name || release.name)) || '');
+}
+
+function isStableGithubRelease(release) {
+  return release && !release.draft && !release.prerelease && getGithubReleaseVersion(release);
+}
+
+async function fetchGithubReleases(pathname) {
   if (typeof fetch !== 'function') {
     throw new Error('Fetch is not available in this runtime.');
   }
 
   const response = await fetch(
-    `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/releases/latest`,
+    `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}${pathname}`,
     {
       headers: {
         Accept: 'application/vnd.github+json',
@@ -3587,8 +3595,19 @@ async function getLatestGithubReleaseVersion() {
     throw new Error(`GitHub release lookup failed with HTTP ${response.status}.`);
   }
 
-  const release = await response.json();
-  return normalizeReleaseVersion(release && release.tag_name);
+  return response.json();
+}
+
+async function getLatestGithubReleaseVersion() {
+  const releases = await fetchGithubReleases('/releases?per_page=30');
+  if (Array.isArray(releases)) {
+    return releases
+      .filter(isStableGithubRelease)
+      .map(getGithubReleaseVersion)
+      .sort((left, right) => compareReleaseVersions(right, left))[0] || null;
+  }
+
+  return null;
 }
 
 async function handleMissingUpdateMetadata(error) {

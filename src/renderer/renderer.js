@@ -122,17 +122,19 @@ const TRANSLATIONS = {
     softwareUpdate: 'Software update',
     softwareUpdateCopy: 'Install the newest OpenFlow build straight from inside the app.',
     checkForUpdates: 'Check for updates',
-    downloadUpdate: 'Download update',
+    downloadUpdate: 'Update',
     installUpdate: 'Restart & install',
     updateIdle: 'Check whether a newer version is available.',
     updateChecking: 'Checking for updates...',
     updateUpToDate: "You're on the latest version.",
-    updateAvailable: 'Version {version} is available to download.',
+    updateAvailable: 'Version {version} is available.',
     updateDownloading: 'Downloading update... {percent}%',
     updateDownloaded: 'Version {version} is ready. Restart to finish installing.',
     updateError: 'Update failed: {message}',
     updateUnsupported: 'Updates are available only in the installed app.',
-    updateMetadataUnavailable: 'No update is available. Auto-update metadata was not found for the latest GitHub release.',
+    updateMetadataUnavailable: 'Auto-update metadata was not found for the latest GitHub release.',
+    updateMetadataUnavailableForVersion:
+      'Version {version} is available, but auto-update metadata was not found for that GitHub release.',
     updateNotPackaged:
       'This installed version does not support in-app updates yet. Install the latest build once to enable them.',
   },
@@ -245,18 +247,20 @@ const TRANSLATIONS = {
     softwareUpdate: 'Atualização do app',
     softwareUpdateCopy: 'Instale a versão mais recente do OpenFlow direto pelo app.',
     checkForUpdates: 'Procurar atualizações',
-    downloadUpdate: 'Baixar atualização',
+    downloadUpdate: 'Atualizar',
     installUpdate: 'Reiniciar e instalar',
     updateIdle: 'Verifique se há uma versão mais nova disponível.',
     updateChecking: 'Procurando atualizações...',
     updateUpToDate: 'Você está na versão mais recente.',
-    updateAvailable: 'A versão {version} está disponível para download.',
+    updateAvailable: 'A versão {version} está disponível.',
     updateDownloading: 'Baixando atualização... {percent}%',
     updateDownloaded: 'Versão {version} pronta. Reinicie para concluir a instalação.',
     updateError: 'Falha na atualização: {message}',
     updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
     updateMetadataUnavailable:
-      'Nenhuma atualização disponível. Os metadados de atualização não foram encontrados no release mais recente do GitHub.',
+      'Os metadados de atualização não foram encontrados no release mais recente do GitHub.',
+    updateMetadataUnavailableForVersion:
+      'A versão {version} está disponível, mas os metadados de atualização não foram encontrados no release do GitHub.',
     updateNotPackaged:
       'Esta versão instalada ainda não suporta atualização pelo app. Instale a versão mais recente uma vez para habilitar.',
   },
@@ -418,6 +422,7 @@ let editingDictionaryRuleId = null;
 let toastHideTimer = null;
 let dictionaryFilter = '';
 let lastUpdate = { status: 'idle', version: null, availableVersion: null, progress: 0, message: '' };
+let installAfterDownload = false;
 
 const SETTINGS_CLOSE_DELAY_MS = 500;
 const TOAST_HIDE_DELAY_MS = 3200;
@@ -932,7 +937,7 @@ function describeUpdate(update) {
     case 'available':
       return {
         text: template('updateAvailable', { version: update.availableVersion || '' }),
-        action: 'download',
+        action: 'update',
         busy: false,
         error: false,
       };
@@ -958,7 +963,14 @@ function describeUpdate(update) {
       const message = update.message || '';
       // A release can exist without the electron-updater metadata files.
       if (/(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message)) {
-        return { text: t('updateMetadataUnavailable'), action: 'check', busy: false, error: false };
+        return {
+          text: update.availableVersion
+            ? template('updateMetadataUnavailableForVersion', { version: update.availableVersion })
+            : t('updateMetadataUnavailable'),
+          action: 'check',
+          busy: false,
+          error: false,
+        };
       }
       return {
         text: template('updateError', { message }),
@@ -978,6 +990,11 @@ function renderUpdateState(update = lastUpdate) {
     return;
   }
 
+  if (installAfterDownload && lastUpdate.status === 'downloaded') {
+    installAfterDownload = false;
+    window.flowLocal.installUpdate();
+  }
+
   const info = describeUpdate(lastUpdate);
   const version = lastUpdate.version ? `v${lastUpdate.version}` : 'v--';
 
@@ -986,7 +1003,7 @@ function renderUpdateState(update = lastUpdate) {
   els.updateStatusText.classList.toggle('update-card__status--error', info.error);
 
   const buttonLabel =
-    info.action === 'download'
+    info.action === 'update'
       ? t('downloadUpdate')
       : info.action === 'install'
         ? t('installUpdate')
@@ -1392,8 +1409,13 @@ function setupHandlers() {
 
   els.updateAction.addEventListener('click', async () => {
     const action = els.updateAction.dataset.updateAction || 'check';
-    if (action === 'download') {
-      renderUpdateState(await window.flowLocal.downloadUpdate());
+    if (action === 'update') {
+      installAfterDownload = true;
+      const update = await window.flowLocal.downloadUpdate();
+      renderUpdateState(update);
+      if (update?.status !== 'downloaded' && update?.status !== 'downloading') {
+        installAfterDownload = false;
+      }
       return;
     }
     if (action === 'install') {
