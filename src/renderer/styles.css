@@ -1260,6 +1260,12 @@ h1, h2, h3 {
 .language-option:hover { border-color: var(--panel-border-strong); }
 .language-option input { accent-color: var(--button-solid-bg); width: 16px; height: 16px; }
 
+.detection-language-selected-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
 .detection-language-toolbar {
   display: flex;
   align-items: center;
@@ -1283,30 +1289,39 @@ h1, h2, h3 {
 
 .detection-language-card {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
   background: var(--panel-bg-subtle);
-  cursor: pointer;
   transition: border-color 0.2s, background-color 0.2s;
+  min-width: 0;
 }
 
-.detection-language-card:hover {
+.detection-language-card--add {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.detection-language-card--add:hover {
   border-color: var(--panel-border-strong);
   background: var(--button-hover);
 }
 
-.detection-language-card--active {
+.detection-language-card--selected {
   border-color: var(--text);
+  background: var(--panel-bg-elevated);
 }
 
-.detection-language-card input {
-  margin: 2px 0 0;
-  width: 16px;
-  height: 16px;
-  accent-color: var(--button-solid-bg);
+.detection-language-card__side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -1332,6 +1347,44 @@ h1, h2, h3 {
   flex-shrink: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.detection-language-lock,
+.detection-language-add {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--button-hover);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.detection-language-add {
+  color: var(--muted);
+}
+
+.detection-language-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: border-color 0.2s, background-color 0.2s, color 0.2s;
+}
+
+.detection-language-remove:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--button-hover);
+  color: var(--text);
 }
 
 .interface-language-list {

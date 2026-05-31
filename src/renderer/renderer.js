@@ -68,9 +68,14 @@ const TRANSLATIONS = {
     keepAllTranscriptionsCopy:
       'Save every local transcription without the {count}-message limit.',
     detectionLanguages: 'Detection languages',
-    detectionLanguagesCopy: 'English is enabled by default. Expand to add more languages.',
+    detectionLanguagesCopy: 'Pick the languages OpenFlow should consider while listening.',
     searchDetectionLanguage: 'Search language',
     detectionLanguageSearchPlaceholder: 'Search detection languages...',
+    activeDetectionLanguage: 'Active',
+    activeDetectionLanguageSingular: 'active language',
+    activeDetectionLanguagePlural: 'active languages',
+    removeDetectionLanguage: 'Remove',
+    addDetectionLanguage: 'Add',
     showMoreLanguages: 'Show more languages',
     showLessLanguages: 'Show fewer languages',
     noDetectionLanguageResults: 'No detection languages match your search.',
@@ -193,9 +198,14 @@ const TRANSLATIONS = {
     overlayDynamicSize: 'Tamanho dinâmico',
     overlayDynamicSizeCopy: 'Reduz a barra para a metade do tamanho até você começar a falar e então cresce até o tamanho cheio.',
     detectionLanguages: 'Idiomas de detecção',
-    detectionLanguagesCopy: 'Português e inglês vêm ativos por padrão. Expanda para adicionar outros idiomas.',
+    detectionLanguagesCopy: 'Escolha os idiomas que o OpenFlow deve considerar enquanto escuta.',
     searchDetectionLanguage: 'Pesquisar idioma',
     detectionLanguageSearchPlaceholder: 'Pesquise os idiomas de detecção...',
+    activeDetectionLanguage: 'Ativo',
+    activeDetectionLanguageSingular: 'idioma ativo',
+    activeDetectionLanguagePlural: 'idiomas ativos',
+    removeDetectionLanguage: 'Remover',
+    addDetectionLanguage: 'Adicionar',
     showMoreLanguages: 'Mostrar mais idiomas',
     showLessLanguages: 'Mostrar menos idiomas',
     noDetectionLanguageResults: 'Nenhum idioma de detecção corresponde à busca.',
@@ -293,6 +303,191 @@ Object.assign(TRANSLATIONS['pt-BR'], {
     'Salva cada transcricao local sem o limite de {count} mensagens.',
 });
 
+const DETECTION_LANGUAGE_TRANSLATIONS = {
+  es: {
+    detectionLanguagesCopy: 'Elige los idiomas que OpenFlow debe considerar mientras escucha.',
+    searchDetectionLanguage: 'Buscar idioma',
+    detectionLanguageSearchPlaceholder: 'Buscar idiomas de deteccion...',
+    activeDetectionLanguage: 'Activo',
+    activeDetectionLanguageSingular: 'idioma activo',
+    activeDetectionLanguagePlural: 'idiomas activos',
+    removeDetectionLanguage: 'Quitar',
+    addDetectionLanguage: 'Agregar',
+    showMoreLanguages: 'Mostrar mas idiomas',
+    showLessLanguages: 'Mostrar menos idiomas',
+    noDetectionLanguageResults: 'Ningun idioma coincide con la busqueda.',
+    keepOneDetectionLanguage: 'Mantén al menos un idioma de deteccion seleccionado.',
+  },
+  fr: {
+    detectionLanguagesCopy: 'Choisissez les langues qu OpenFlow doit prendre en compte pendant l ecoute.',
+    searchDetectionLanguage: 'Rechercher une langue',
+    detectionLanguageSearchPlaceholder: 'Rechercher des langues de detection...',
+    activeDetectionLanguage: 'Actif',
+    activeDetectionLanguageSingular: 'langue active',
+    activeDetectionLanguagePlural: 'langues actives',
+    removeDetectionLanguage: 'Retirer',
+    addDetectionLanguage: 'Ajouter',
+    showMoreLanguages: 'Afficher plus de langues',
+    showLessLanguages: 'Afficher moins de langues',
+    noDetectionLanguageResults: 'Aucune langue ne correspond a cette recherche.',
+    keepOneDetectionLanguage: 'Conservez au moins une langue de detection selectionnee.',
+  },
+  de: {
+    detectionLanguagesCopy: 'Wahle die Sprachen, die OpenFlow beim Zuhoren berucksichtigen soll.',
+    searchDetectionLanguage: 'Sprache suchen',
+    detectionLanguageSearchPlaceholder: 'Erkennungssprachen suchen...',
+    activeDetectionLanguage: 'Aktiv',
+    activeDetectionLanguageSingular: 'aktive Sprache',
+    activeDetectionLanguagePlural: 'aktive Sprachen',
+    removeDetectionLanguage: 'Entfernen',
+    addDetectionLanguage: 'Hinzufugen',
+    showMoreLanguages: 'Mehr Sprachen anzeigen',
+    showLessLanguages: 'Weniger Sprachen anzeigen',
+    noDetectionLanguageResults: 'Keine Sprache passt zu dieser Suche.',
+    keepOneDetectionLanguage: 'Mindestens eine Erkennungssprache muss ausgewahlt bleiben.',
+  },
+  it: {
+    detectionLanguagesCopy: 'Scegli le lingue che OpenFlow deve considerare durante l ascolto.',
+    searchDetectionLanguage: 'Cerca lingua',
+    detectionLanguageSearchPlaceholder: 'Cerca lingue di rilevamento...',
+    activeDetectionLanguage: 'Attiva',
+    activeDetectionLanguageSingular: 'lingua attiva',
+    activeDetectionLanguagePlural: 'lingue attive',
+    removeDetectionLanguage: 'Rimuovi',
+    addDetectionLanguage: 'Aggiungi',
+    showMoreLanguages: 'Mostra altre lingue',
+    showLessLanguages: 'Mostra meno lingue',
+    noDetectionLanguageResults: 'Nessuna lingua corrisponde alla ricerca.',
+    keepOneDetectionLanguage: 'Mantieni almeno una lingua di rilevamento selezionata.',
+  },
+  nl: {
+    detectionLanguagesCopy: 'Kies de talen die OpenFlow moet meenemen tijdens het luisteren.',
+    searchDetectionLanguage: 'Taal zoeken',
+    detectionLanguageSearchPlaceholder: 'Detectietalen zoeken...',
+    activeDetectionLanguage: 'Actief',
+    activeDetectionLanguageSingular: 'actieve taal',
+    activeDetectionLanguagePlural: 'actieve talen',
+    removeDetectionLanguage: 'Verwijderen',
+    addDetectionLanguage: 'Toevoegen',
+    showMoreLanguages: 'Meer talen tonen',
+    showLessLanguages: 'Minder talen tonen',
+    noDetectionLanguageResults: 'Geen taal gevonden voor deze zoekopdracht.',
+    keepOneDetectionLanguage: 'Houd minstens een detectietaal geselecteerd.',
+  },
+  el: {
+    detectionLanguagesCopy: 'Επιλέξτε τις γλώσσες που θα λαμβάνει υπόψη το OpenFlow κατά την ακρόαση.',
+    searchDetectionLanguage: 'Αναζήτηση γλώσσας',
+    detectionLanguageSearchPlaceholder: 'Αναζήτηση γλωσσών ανίχνευσης...',
+    activeDetectionLanguage: 'Ενεργή',
+    activeDetectionLanguageSingular: 'ενεργή γλώσσα',
+    activeDetectionLanguagePlural: 'ενεργές γλώσσες',
+    removeDetectionLanguage: 'Αφαίρεση',
+    addDetectionLanguage: 'Προσθήκη',
+    showMoreLanguages: 'Εμφάνιση περισσότερων γλωσσών',
+    showLessLanguages: 'Εμφάνιση λιγότερων γλωσσών',
+    noDetectionLanguageResults: 'Καμία γλώσσα δεν ταιριάζει με την αναζήτηση.',
+    keepOneDetectionLanguage: 'Κρατήστε επιλεγμένη τουλάχιστον μία γλώσσα ανίχνευσης.',
+  },
+  ru: {
+    detectionLanguagesCopy: 'Выберите языки, которые OpenFlow должен учитывать во время прослушивания.',
+    searchDetectionLanguage: 'Поиск языка',
+    detectionLanguageSearchPlaceholder: 'Поиск языков распознавания...',
+    activeDetectionLanguage: 'Активно',
+    activeDetectionLanguageSingular: 'активный язык',
+    activeDetectionLanguagePlural: 'активные языки',
+    removeDetectionLanguage: 'Удалить',
+    addDetectionLanguage: 'Добавить',
+    showMoreLanguages: 'Показать больше языков',
+    showLessLanguages: 'Показать меньше языков',
+    noDetectionLanguageResults: 'Нет языков, подходящих под поиск.',
+    keepOneDetectionLanguage: 'Оставьте выбранным хотя бы один язык распознавания.',
+  },
+  'zh-CN': {
+    detectionLanguagesCopy: '选择 OpenFlow 在聆听时应考虑的语言。',
+    searchDetectionLanguage: '搜索语言',
+    detectionLanguageSearchPlaceholder: '搜索检测语言...',
+    activeDetectionLanguage: '已启用',
+    activeDetectionLanguageSingular: '启用的语言',
+    activeDetectionLanguagePlural: '启用的语言',
+    removeDetectionLanguage: '移除',
+    addDetectionLanguage: '添加',
+    showMoreLanguages: '显示更多语言',
+    showLessLanguages: '显示更少语言',
+    noDetectionLanguageResults: '没有匹配的检测语言。',
+    keepOneDetectionLanguage: '请至少保留一种检测语言。',
+  },
+  ja: {
+    detectionLanguagesCopy: 'OpenFlow が聞き取り時に考慮する言語を選びます。',
+    searchDetectionLanguage: '言語を検索',
+    detectionLanguageSearchPlaceholder: '検出言語を検索...',
+    activeDetectionLanguage: '有効',
+    activeDetectionLanguageSingular: '有効な言語',
+    activeDetectionLanguagePlural: '有効な言語',
+    removeDetectionLanguage: '削除',
+    addDetectionLanguage: '追加',
+    showMoreLanguages: '他の言語を表示',
+    showLessLanguages: '表示を減らす',
+    noDetectionLanguageResults: '検索に一致する検出言語がありません。',
+    keepOneDetectionLanguage: '少なくとも 1 つの検出言語を選択してください。',
+  },
+  ko: {
+    detectionLanguagesCopy: 'OpenFlow가 듣는 동안 고려할 언어를 선택하세요.',
+    searchDetectionLanguage: '언어 검색',
+    detectionLanguageSearchPlaceholder: '감지 언어 검색...',
+    activeDetectionLanguage: '활성',
+    activeDetectionLanguageSingular: '활성 언어',
+    activeDetectionLanguagePlural: '활성 언어',
+    removeDetectionLanguage: '제거',
+    addDetectionLanguage: '추가',
+    showMoreLanguages: '더 많은 언어 보기',
+    showLessLanguages: '언어 적게 보기',
+    noDetectionLanguageResults: '검색과 일치하는 감지 언어가 없습니다.',
+    keepOneDetectionLanguage: '감지 언어를 하나 이상 선택하세요.',
+  },
+  ar: {
+    detectionLanguagesCopy: 'اختر اللغات التي يجب أن يراعيها OpenFlow أثناء الاستماع.',
+    searchDetectionLanguage: 'ابحث عن لغة',
+    detectionLanguageSearchPlaceholder: 'ابحث في لغات الاكتشاف...',
+    activeDetectionLanguage: 'نشطة',
+    activeDetectionLanguageSingular: 'لغة نشطة',
+    activeDetectionLanguagePlural: 'لغات نشطة',
+    removeDetectionLanguage: 'إزالة',
+    addDetectionLanguage: 'إضافة',
+    showMoreLanguages: 'إظهار المزيد من اللغات',
+    showLessLanguages: 'إظهار لغات أقل',
+    noDetectionLanguageResults: 'لا توجد لغات مطابقة للبحث.',
+    keepOneDetectionLanguage: 'أبق لغة اكتشاف واحدة على الأقل محددة.',
+  },
+  hi: {
+    detectionLanguagesCopy: 'सुनते समय OpenFlow जिन भाषाओं पर विचार करे उन्हें चुनें।',
+    searchDetectionLanguage: 'भाषा खोजें',
+    detectionLanguageSearchPlaceholder: 'पता लगाने की भाषाएँ खोजें...',
+    activeDetectionLanguage: 'सक्रिय',
+    activeDetectionLanguageSingular: 'सक्रिय भाषा',
+    activeDetectionLanguagePlural: 'सक्रिय भाषाएँ',
+    removeDetectionLanguage: 'हटाएँ',
+    addDetectionLanguage: 'जोड़ें',
+    showMoreLanguages: 'और भाषाएँ दिखाएँ',
+    showLessLanguages: 'कम भाषाएँ दिखाएँ',
+    noDetectionLanguageResults: 'इस खोज से कोई भाषा नहीं मिली।',
+    keepOneDetectionLanguage: 'कम से कम एक पता लगाने की भाषा चयनित रखें।',
+  },
+  tr: {
+    detectionLanguagesCopy: 'OpenFlow un dinlerken dikkate alacağı dilleri seçin.',
+    searchDetectionLanguage: 'Dil ara',
+    detectionLanguageSearchPlaceholder: 'Algılama dillerini ara...',
+    activeDetectionLanguage: 'Aktif',
+    activeDetectionLanguageSingular: 'aktif dil',
+    activeDetectionLanguagePlural: 'aktif diller',
+    removeDetectionLanguage: 'Kaldır',
+    addDetectionLanguage: 'Ekle',
+    showMoreLanguages: 'Daha fazla dil göster',
+    showLessLanguages: 'Daha az dil göster',
+    noDetectionLanguageResults: 'Bu aramaya uygun algılama dili yok.',
+    keepOneDetectionLanguage: 'En az bir algılama dili seçili kalmalı.',
+  },
+};
+
 for (const code of SUPPORTED_INTERFACE_LANGUAGES) {
   if (code === 'en' || code === 'pt-BR') {
     continue;
@@ -307,6 +502,7 @@ for (const code of SUPPORTED_INTERFACE_LANGUAGES) {
     keepAllTranscriptions: 'Keep all transcriptions',
     keepAllTranscriptionsCopy:
       'Save every local transcription without the {count}-message limit.',
+    ...(DETECTION_LANGUAGE_TRANSLATIONS[code] || {}),
   });
 }
 
@@ -503,29 +699,50 @@ function getDictionaryFallbackLanguages() {
 }
 
 function detectionLanguageSummary(selectedLanguages) {
-  const list = Array.isArray(selectedLanguages) ? selectedLanguages : [];
-
-  if (list.length <= 3) {
-    return list.map((code) => capitalizeLanguageLabel(langName(code))).join(', ');
-  }
-
-  return locale() === 'pt-BR' ? `${intFmt(list.length)} selecionados` : `${intFmt(list.length)} selected`;
+  const count = Array.isArray(selectedLanguages) ? selectedLanguages.length : 0;
+  return countLabel(
+    count,
+    t('activeDetectionLanguageSingular'),
+    t('activeDetectionLanguagePlural'),
+  );
 }
 
-function buildDetectionLanguageOption(code, selected, compact = false) {
+function buildSelectedDetectionLanguageCard(code, canRemove) {
   const nativeName = capitalizeLanguageLabel(langName(code, code), code);
   const localName = capitalizeLanguageLabel(langName(code));
   const showLocalName = localName && localName !== nativeName;
 
   return `
-    <label class="detection-language-card${selected ? ' detection-language-card--active' : ''}${compact ? ' detection-language-card--compact' : ''}">
-      <input data-detection-language="${esc(code)}" type="checkbox" value="${esc(code)}" ${selected ? 'checked' : ''} />
+    <article class="detection-language-card detection-language-card--selected">
       <div class="detection-language-card__copy">
         <strong>${esc(nativeName)}</strong>
         <span>${esc(showLocalName ? localName : code.toUpperCase())}</span>
       </div>
-      <span class="detection-language-card__meta">${esc(code.toUpperCase())}</span>
-    </label>
+      <div class="detection-language-card__side">
+        <span class="detection-language-card__meta">${esc(code.toUpperCase())}</span>
+        ${
+          canRemove
+            ? `<button class="detection-language-remove" data-detection-remove="${esc(code)}" type="button" aria-label="${esc(t('removeDetectionLanguage'))} ${esc(localName || nativeName)}">&times;</button>`
+            : `<span class="detection-language-lock">${esc(t('activeDetectionLanguage'))}</span>`
+        }
+      </div>
+    </article>
+  `;
+}
+
+function buildDetectionLanguageOption(code) {
+  const nativeName = capitalizeLanguageLabel(langName(code, code), code);
+  const localName = capitalizeLanguageLabel(langName(code));
+  const showLocalName = localName && localName !== nativeName;
+
+  return `
+    <button class="detection-language-card detection-language-card--add" data-detection-add="${esc(code)}" type="button">
+      <div class="detection-language-card__copy">
+        <strong>${esc(nativeName)}</strong>
+        <span>${esc(showLocalName ? localName : code.toUpperCase())}</span>
+      </div>
+      <span class="detection-language-add">+ ${esc(t('addDetectionLanguage'))}</span>
+    </button>
   `;
 }
 
@@ -545,9 +762,9 @@ function renderDetectionLanguages() {
   }
   renderCache.detectionLanguages = signature;
 
-  const defaultLanguages = DEFAULT_DETECTION_LANGUAGES.filter((code) => supported.includes(code));
+  const selectedLanguages = [...selected];
   const extraLanguages = supported
-    .filter((code) => !defaultLanguages.includes(code))
+    .filter((code) => !selected.has(code))
     .map((code) => ({
       code,
       label: capitalizeLanguageLabel(langName(code)),
@@ -556,13 +773,13 @@ function renderDetectionLanguages() {
     .sort((left, right) => left.label.localeCompare(right.label, locale()));
   const filteredExtras = extraLanguages.filter((item) => {
     const searchText = `${item.code} ${item.label} ${item.nativeName}`.toLocaleLowerCase(locale());
-    return selected.has(item.code) || !query || searchText.includes(query);
+    return !query || searchText.includes(query);
   });
 
-  els.detectionLanguageDefaults.innerHTML = defaultLanguages
-    .map((code) => buildDetectionLanguageOption(code, selected.has(code), true))
+  els.detectionLanguageDefaults.innerHTML = selectedLanguages
+    .map((code) => buildSelectedDetectionLanguageCard(code, selected.size > 1))
     .join('');
-  els.detectionLanguageSummary.textContent = detectionLanguageSummary([...selected]);
+  els.detectionLanguageSummary.textContent = detectionLanguageSummary(selectedLanguages);
   els.toggleDetectionLanguages.textContent = detectionLanguagesExpanded
     ? t('showLessLanguages')
     : `${t('showMoreLanguages')} (${intFmt(extraLanguages.length)})`;
@@ -575,7 +792,7 @@ function renderDetectionLanguages() {
   }
 
   els.detectionLanguageList.innerHTML = filteredExtras
-    .map((item) => buildDetectionLanguageOption(item.code, selected.has(item.code)))
+    .map((item) => buildDetectionLanguageOption(item.code))
     .join('');
 }
 
@@ -1451,27 +1668,15 @@ function resetDictionaryForm(fallbackLanguages) {
   applyTranslations();
 }
 
-function selectedDetectionLanguagesFromDom() {
-  return [...document.querySelectorAll('[data-detection-language]')]
-    .filter((input) => input.checked)
-    .map((input) => input.value);
-}
-
 function selectedDictionaryLanguages(fallbackLanguages) {
   const list = [els.dictionaryLangPt.checked ? 'pt' : null, els.dictionaryLangEn.checked ? 'en' : null].filter(Boolean);
   return list.length > 0 ? list : fallbackLanguages;
 }
 
 function setupHandlers() {
-  const updateDetectionLanguages = async (event) => {
-    const input = event.target;
-    if (!input || !input.matches('[data-detection-language]')) {
-      return;
-    }
-
-    const selected = selectedDetectionLanguagesFromDom();
+  const updateDetectionLanguages = async (languages) => {
+    const selected = [...new Set(languages.map((code) => String(code || '').trim().toLowerCase()).filter(Boolean))];
     if (selected.length === 0) {
-      input.checked = true;
       showToast(t('keepOneDetectionLanguage'));
       return;
     }
@@ -1479,8 +1684,27 @@ function setupHandlers() {
     renderState(await window.flowLocal.updateSettings({ allowedLanguages: selected }));
   };
 
-  els.detectionLanguageDefaults.addEventListener('change', updateDetectionLanguages);
-  els.detectionLanguageList.addEventListener('change', updateDetectionLanguages);
+  els.detectionLanguageDefaults.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-detection-remove]');
+    if (!button) {
+      return;
+    }
+
+    const code = button.getAttribute('data-detection-remove');
+    const next = getSelectedDetectionLanguages().filter((language) => language !== code);
+    updateDetectionLanguages(next);
+  });
+
+  els.detectionLanguageList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-detection-add]');
+    if (!button) {
+      return;
+    }
+
+    const code = button.getAttribute('data-detection-add');
+    updateDetectionLanguages([...getSelectedDetectionLanguages(), code]);
+  });
+
   els.toggleDetectionLanguages.addEventListener('click', () => {
     detectionLanguagesExpanded = !detectionLanguagesExpanded;
     if (!detectionLanguagesExpanded) {
