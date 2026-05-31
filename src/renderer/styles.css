@@ -913,6 +913,14 @@ h1, h2, h3 {
   transition-delay: 0s;
 }
 
+/* The advanced drawer slides in on top of the regular settings drawer. */
+#advanced-backdrop {
+  z-index: 60;
+}
+#advanced-drawer {
+  z-index: 70;
+}
+
 .settings-drawer__header {
   padding: 32px 32px 24px;
   border-bottom: 1px solid var(--panel-border);
@@ -1092,6 +1100,144 @@ h1, h2, h3 {
 }
 .toggle-switch input:checked + span { background: var(--button-solid-bg); }
 .toggle-switch input:checked + span::after { transform: translateX(20px); }
+
+/* Slider cards (floating bar customization) */
+.slider-card {
+  padding: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-subtle);
+  box-shadow: var(--shadow-sm);
+}
+.panel--settings .slider-card + .slider-card,
+.panel--settings .slider-card + .toggle-card,
+.panel--settings .toggle-card + .slider-card { margin-top: 12px; }
+.slider-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.slider-card__head strong { font-size: 0.95rem; }
+.slider-card__value {
+  font-size: 0.85rem;
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+.slider-card p {
+  margin: 0 0 14px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--panel-border-strong);
+  outline: none;
+  cursor: pointer;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--button-solid-bg);
+  border: 1px solid var(--button-solid-bg);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--button-solid-bg);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Shortcut capture */
+.shortcut-setting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-subtle);
+  box-shadow: var(--shadow-sm);
+}
+.panel--settings .shortcut-setting + .shortcut-setting { margin-top: 12px; }
+.shortcut-setting__info { min-width: 0; }
+.shortcut-setting__info strong { display: block; font-size: 0.95rem; margin-bottom: 4px; }
+.shortcut-setting__info p { margin: 0; font-size: 0.85rem; color: var(--muted); line-height: 1.4; }
+.shortcut-capture {
+  appearance: none;
+  cursor: pointer;
+  min-width: 132px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--panel-border-strong);
+  background: var(--panel-bg);
+  color: var(--text);
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+.shortcut-capture:hover { border-color: var(--text); background: var(--button-hover); }
+.shortcut-capture__keys {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+.shortcut-capture--recording {
+  border-style: solid;
+  border-color: var(--listening);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+.shortcut-hint {
+  margin: 14px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* Advanced settings entry box */
+.advanced-entry {
+  appearance: none;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  transition: border-color 0.2s, background-color 0.2s, transform 0.2s;
+}
+.advanced-entry:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--button-hover);
+  transform: translateY(-1px);
+}
+.advanced-entry__copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.advanced-entry__copy strong { font-size: 1rem; }
+.advanced-entry__copy span { font-size: 0.85rem; color: var(--muted); }
+.advanced-entry__chevron { font-size: 1.6rem; color: var(--muted); line-height: 1; flex: 0 0 auto; }
 
 .language-grid {
   display: grid;

@@ -40,6 +40,27 @@ const TRANSLATIONS = {
     startWithComputerCopy: 'Launch OpenFlow in the background when you sign in.',
     soundEffects: 'Sound feedback',
     soundEffectsCopy: 'Play sounds on load, start, stop, cancel, and hands-free activation.',
+    shortcuts: 'Shortcuts',
+    shortcutsCopy: 'Choose the keys you press to dictate and to paste.',
+    globalShortcutCopy: 'Hold to dictate. Add Space while holding for hands-free.',
+    pasteLastCopy: 'Paste your most recent transcription into any app.',
+    shortcutHint: 'Click a shortcut, then press the key combination you want. Press Esc to cancel.',
+    recordingShortcut: 'Press keys…',
+    invalidShortcut: "That combination can't be used. Try adding a modifier key.",
+    muteMusicTitle: 'Audio',
+    muteMusic: 'Duck audio while dictating',
+    muteMusicCopy: "Mute other apps' sound while you speak, then restore it afterwards.",
+    advancedSettings: 'Advanced settings',
+    advancedSettingsCopy: 'Shortcuts, model, history, and floating bar customization.',
+    back: 'Back',
+    floatingBarCustomization: 'Floating bar appearance',
+    floatingBarCustomizationCopy: 'Fine-tune how the floating pill looks on screen.',
+    overlayOpacity: 'Pill opacity',
+    overlayOpacityCopy: 'Transparency of the pill background. The effects stay fully visible.',
+    overlaySize: 'Pill size',
+    overlaySizeCopy: 'Overall size of the floating pill (100% is the default).',
+    overlayDynamicSize: 'Dynamic size',
+    overlayDynamicSizeCopy: 'Shrink the pill to half size until you start speaking, then grow it to full size.',
     transcriptionHistory: 'Transcription history',
     transcriptionHistoryCopy:
       'Control whether the app stores only the latest local messages or every transcription.',
@@ -148,6 +169,27 @@ const TRANSLATIONS = {
     startWithComputerCopy: 'Abre o OpenFlow em segundo plano ao entrar no sistema.',
     soundEffects: 'Sons de feedback',
     soundEffectsCopy: 'Toca sons ao carregar, iniciar, encerrar, cancelar e ativar hands-free.',
+    shortcuts: 'Atalhos',
+    shortcutsCopy: 'Escolha as teclas que você pressiona para ditar e para colar.',
+    globalShortcutCopy: 'Segure para ditar. Adicione Espaço enquanto segura para o modo hands-free.',
+    pasteLastCopy: 'Cole sua transcrição mais recente em qualquer app.',
+    shortcutHint: 'Clique em um atalho e pressione a combinação desejada. Pressione Esc para cancelar.',
+    recordingShortcut: 'Pressione as teclas…',
+    invalidShortcut: 'Essa combinação não pode ser usada. Tente adicionar uma tecla modificadora.',
+    muteMusicTitle: 'Áudio',
+    muteMusic: 'Abaixar o áudio ao ditar',
+    muteMusicCopy: 'Silencia o som de outros apps enquanto você fala e restaura depois.',
+    advancedSettings: 'Configurações avançadas',
+    advancedSettingsCopy: 'Atalhos, modelo, histórico e personalização da barra flutuante.',
+    back: 'Voltar',
+    floatingBarCustomization: 'Aparência da barra flutuante',
+    floatingBarCustomizationCopy: 'Ajuste como a barra flutuante aparece na tela.',
+    overlayOpacity: 'Opacidade da barra',
+    overlayOpacityCopy: 'Transparência do fundo da barra. Os efeitos continuam totalmente visíveis.',
+    overlaySize: 'Tamanho da barra',
+    overlaySizeCopy: 'Tamanho geral da barra flutuante (100% é o padrão).',
+    overlayDynamicSize: 'Tamanho dinâmico',
+    overlayDynamicSizeCopy: 'Reduz a barra para a metade do tamanho até você começar a falar e então cresce até o tamanho cheio.',
     detectionLanguages: 'Idiomas de detecção',
     detectionLanguagesCopy: 'Português e inglês vêm ativos por padrão. Expanda para adicionar outros idiomas.',
     searchDetectionLanguage: 'Pesquisar idioma',
@@ -326,6 +368,20 @@ const els = {
   closeSettings: document.getElementById('close-settings'),
   settingsDrawer: document.getElementById('settings-drawer'),
   settingsBackdrop: document.getElementById('settings-backdrop'),
+  openAdvanced: document.getElementById('open-advanced'),
+  closeAdvanced: document.getElementById('close-advanced'),
+  advancedDrawer: document.getElementById('advanced-drawer'),
+  advancedBackdrop: document.getElementById('advanced-backdrop'),
+  captureShortcut: document.getElementById('capture-shortcut'),
+  capturePasteShortcut: document.getElementById('capture-paste-shortcut'),
+  shortcutCaptureKeys: document.getElementById('shortcut-capture-keys'),
+  pasteShortcutCaptureKeys: document.getElementById('paste-shortcut-capture-keys'),
+  duckAudio: document.getElementById('duck-audio'),
+  overlayOpacity: document.getElementById('overlay-opacity'),
+  overlayOpacityValue: document.getElementById('overlay-opacity-value'),
+  overlayScale: document.getElementById('overlay-scale'),
+  overlayScaleValue: document.getElementById('overlay-scale-value'),
+  overlayDynamicSize: document.getElementById('overlay-dynamic-size'),
   showOverlayBar: document.getElementById('show-overlay-bar'),
   launchAtLogin: document.getElementById('launch-at-login'),
   soundEffectsEnabled: document.getElementById('sound-effects-enabled'),
@@ -349,6 +405,11 @@ let historyFilter = '';
 let lastState = null;
 let settingsOpen = false;
 let settingsCloseTimer = null;
+let advancedOpen = false;
+let advancedCloseTimer = null;
+let capturingShortcutTarget = null;
+let captureHeldTokens = new Set();
+let captureBestTokens = [];
 let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
 let detectionLanguagesExpanded = false;
@@ -527,10 +588,12 @@ function formatShortcut(shortcut, platform = 'win32') {
       if (token === 'command' || token === 'cmd') return 'Command';
       if (token === 'shift') return 'Shift';
       if (token === 'space') return 'Space';
+      if (token === 'enter') return 'Enter';
       if (token === 'alt' || token === 'option') return platform === 'darwin' ? 'Option' : 'Alt';
       if (token === 'windows' || token === 'super' || token === 'left windows' || token === 'right windows') {
         return platform === 'darwin' ? 'Command' : 'Win';
       }
+      if (/^f([1-9]|1[0-2])$/.test(token)) return token.toUpperCase();
       return token.length === 1 ? token.toUpperCase() : token;
     })
     .join('+');
@@ -966,6 +1029,23 @@ function renderState(state) {
   els.launchAtLogin.checked = Boolean(state.launchAtLogin);
   els.soundEffectsEnabled.checked = Boolean(state.soundEffectsEnabled);
   els.keepAllTranscriptions.checked = Boolean(state.keepAllTranscriptions);
+  els.duckAudio.checked = Boolean(state.duckAudioEnabled);
+  els.overlayDynamicSize.checked = Boolean(state.overlayDynamicSize);
+
+  // Don't fight the user while they are dragging a slider or recording a shortcut.
+  const overlayOpacity = Number.isFinite(Number(state.overlayOpacity)) ? Number(state.overlayOpacity) : 100;
+  const overlayScale = Number.isFinite(Number(state.overlayScale)) ? Number(state.overlayScale) : 100;
+  if (document.activeElement !== els.overlayOpacity) {
+    els.overlayOpacity.value = String(overlayOpacity);
+  }
+  els.overlayOpacityValue.textContent = `${overlayOpacity}%`;
+  if (document.activeElement !== els.overlayScale) {
+    els.overlayScale.value = String(overlayScale);
+  }
+  els.overlayScaleValue.textContent = `${overlayScale}%`;
+  if (!capturingShortcutTarget) {
+    refreshShortcutLabels();
+  }
 
   renderUsageSummary(state.usageSummary || {});
   renderHistory(state.history, state.historyTotal);
@@ -1000,6 +1080,158 @@ function setSettingsOpen(open) {
     els.settingsBackdrop.classList.add('hidden');
     settingsCloseTimer = null;
   }, SETTINGS_CLOSE_DELAY_MS);
+}
+
+function setAdvancedOpen(open) {
+  if (advancedCloseTimer) {
+    window.clearTimeout(advancedCloseTimer);
+    advancedCloseTimer = null;
+  }
+  advancedOpen = Boolean(open);
+
+  if (advancedOpen) {
+    els.advancedDrawer.classList.remove('hidden');
+    els.advancedBackdrop.classList.remove('hidden');
+    window.requestAnimationFrame(() => {
+      els.advancedDrawer.classList.add('is-visible');
+      els.advancedBackdrop.classList.add('is-visible');
+      els.advancedDrawer.setAttribute('aria-hidden', 'false');
+    });
+    return;
+  }
+
+  els.advancedDrawer.classList.remove('is-visible');
+  els.advancedBackdrop.classList.remove('is-visible');
+  els.advancedDrawer.setAttribute('aria-hidden', 'true');
+  advancedCloseTimer = window.setTimeout(() => {
+    els.advancedDrawer.classList.add('hidden');
+    els.advancedBackdrop.classList.add('hidden');
+    advancedCloseTimer = null;
+  }, SETTINGS_CLOSE_DELAY_MS);
+}
+
+const SHORTCUT_MODIFIER_TOKENS = ['ctrl', 'alt', 'shift', 'windows', 'command'];
+
+function shortcutTokenFromEvent(event) {
+  const key = event.key;
+  if (key === 'Control') return 'ctrl';
+  if (key === 'Alt' || key === 'AltGraph') return 'alt';
+  if (key === 'Shift') return 'shift';
+  if (key === 'Meta' || key === 'OS') {
+    return lastState?.platform === 'darwin' ? 'command' : 'windows';
+  }
+  if (key === ' ' || key === 'Spacebar' || key === 'Space') return 'space';
+  if (key === 'Enter') return 'enter';
+  if (key === 'Escape') return 'escape';
+  if (/^[a-zA-Z0-9]$/.test(key)) return key.toLowerCase();
+  if (/^F([1-9]|1[0-2])$/.test(key)) return key.toLowerCase();
+  return null;
+}
+
+function orderShortcutTokens(tokenSet) {
+  const modifiers = SHORTCUT_MODIFIER_TOKENS.filter((token) => tokenSet.has(token));
+  const keys = [...tokenSet].filter((token) => !SHORTCUT_MODIFIER_TOKENS.includes(token));
+  return [...modifiers, ...keys];
+}
+
+function isValidCapturedShortcut(tokens) {
+  if (!tokens.length) return false;
+  const keys = tokens.filter((token) => !SHORTCUT_MODIFIER_TOKENS.includes(token));
+  // Esc stays reserved for cancelling, and a shortcut can hold at most one non-modifier
+  // key. Otherwise anything goes — a single key with no modifier is allowed.
+  if (keys.includes('escape')) return false;
+  if (keys.length > 1) return false;
+  return true;
+}
+
+function getCaptureButton(target) {
+  return target === 'pasteLastShortcut' ? els.capturePasteShortcut : els.captureShortcut;
+}
+
+function refreshShortcutLabels() {
+  if (!lastState) return;
+  els.shortcutCaptureKeys.textContent = formatShortcut(lastState.shortcut, lastState.platform) || '--';
+  els.pasteShortcutCaptureKeys.textContent =
+    formatShortcut(lastState.pasteLastShortcut, lastState.platform) || '--';
+}
+
+function startShortcutCapture(target) {
+  if (capturingShortcutTarget === target) return;
+  if (capturingShortcutTarget) stopShortcutCapture();
+
+  capturingShortcutTarget = target;
+  captureHeldTokens = new Set();
+  captureBestTokens = [];
+
+  const button = getCaptureButton(target);
+  button.classList.add('shortcut-capture--recording');
+  const keysEl = button.querySelector('.shortcut-capture__keys');
+  if (keysEl) keysEl.textContent = t('recordingShortcut');
+}
+
+function stopShortcutCapture() {
+  if (!capturingShortcutTarget) return;
+  capturingShortcutTarget = null;
+  captureHeldTokens = new Set();
+  captureBestTokens = [];
+
+  for (const button of [els.captureShortcut, els.capturePasteShortcut]) {
+    if (button) button.classList.remove('shortcut-capture--recording');
+  }
+  refreshShortcutLabels();
+}
+
+async function finalizeShortcutCapture() {
+  const target = capturingShortcutTarget;
+  const tokens = captureBestTokens.slice();
+  if (!target) return;
+
+  if (!isValidCapturedShortcut(tokens)) {
+    showToast(t('invalidShortcut'));
+    stopShortcutCapture();
+    return;
+  }
+
+  stopShortcutCapture();
+  renderState(await window.flowLocal.updateSettings({ [target]: tokens.join('+') }));
+}
+
+function handleShortcutCaptureKeydown(event) {
+  if (!capturingShortcutTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+
+  const token = shortcutTokenFromEvent(event);
+  if (token === 'escape') {
+    stopShortcutCapture();
+    return;
+  }
+  if (!token) return;
+
+  captureHeldTokens.add(token);
+  const ordered = orderShortcutTokens(captureHeldTokens);
+  if (ordered.length >= captureBestTokens.length) {
+    captureBestTokens = ordered;
+  }
+
+  const button = getCaptureButton(capturingShortcutTarget);
+  const keysEl = button.querySelector('.shortcut-capture__keys');
+  if (keysEl) {
+    keysEl.textContent =
+      formatShortcut(captureBestTokens.join('+'), lastState?.platform) || t('recordingShortcut');
+  }
+}
+
+function handleShortcutCaptureKeyup(event) {
+  if (!capturingShortcutTarget) return;
+  event.preventDefault();
+  event.stopPropagation();
+
+  const token = shortcutTokenFromEvent(event);
+  if (token) captureHeldTokens.delete(token);
+  if (captureHeldTokens.size === 0 && captureBestTokens.length > 0) {
+    finalizeShortcutCapture();
+  }
 }
 
 function setDictionaryOpen(open) {
@@ -1127,6 +1359,9 @@ function setupHandlers() {
   els.openSettings.addEventListener('click', () => setSettingsOpen(true));
   els.closeSettings.addEventListener('click', () => setSettingsOpen(false));
   els.settingsBackdrop.addEventListener('click', () => setSettingsOpen(false));
+  els.openAdvanced.addEventListener('click', () => setAdvancedOpen(true));
+  els.closeAdvanced.addEventListener('click', () => setAdvancedOpen(false));
+  els.advancedBackdrop.addEventListener('click', () => setAdvancedOpen(false));
   els.openDictionary.addEventListener('click', () => setDictionaryOpen(true));
   els.closeDictionary.addEventListener('click', () => setDictionaryOpen(false));
   els.dictionaryBackdrop.addEventListener('click', () => setDictionaryOpen(false));
@@ -1149,6 +1384,44 @@ function setupHandlers() {
       keepAllTranscriptions: els.keepAllTranscriptions.checked,
     }));
   });
+  els.duckAudio.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({ duckAudioEnabled: els.duckAudio.checked }));
+  });
+
+  els.overlayOpacity.addEventListener('input', () => {
+    els.overlayOpacityValue.textContent = `${els.overlayOpacity.value}%`;
+    window.flowLocal.previewOverlayStyle({ overlayOpacity: Number(els.overlayOpacity.value) });
+  });
+  els.overlayOpacity.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({ overlayOpacity: Number(els.overlayOpacity.value) }));
+  });
+  els.overlayScale.addEventListener('input', () => {
+    els.overlayScaleValue.textContent = `${els.overlayScale.value}%`;
+    window.flowLocal.previewOverlayStyle({ overlayScale: Number(els.overlayScale.value) });
+  });
+  els.overlayScale.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({ overlayScale: Number(els.overlayScale.value) }));
+  });
+  els.overlayDynamicSize.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({ overlayDynamicSize: els.overlayDynamicSize.checked }));
+  });
+
+  els.captureShortcut.addEventListener('click', () => startShortcutCapture('shortcut'));
+  els.capturePasteShortcut.addEventListener('click', () => startShortcutCapture('pasteLastShortcut'));
+  // Capture phase so we intercept the keys before the app's other shortcuts/handlers.
+  window.addEventListener('keydown', handleShortcutCaptureKeydown, true);
+  window.addEventListener('keyup', handleShortcutCaptureKeyup, true);
+  // Clicking anywhere outside the active capture button cancels recording.
+  window.addEventListener(
+    'mousedown',
+    (event) => {
+      if (!capturingShortcutTarget) return;
+      const activeButton = getCaptureButton(capturingShortcutTarget);
+      if (activeButton && activeButton.contains(event.target)) return;
+      stopShortcutCapture();
+    },
+    true,
+  );
 
   els.historySearch.addEventListener('input', () => {
     historyFilter = els.historySearch.value || '';
@@ -1222,11 +1495,20 @@ function setupHandlers() {
   });
 
   window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && dictionaryOpen) {
+    if (event.key !== 'Escape') {
+      return;
+    }
+    // While recording a shortcut, Esc is handled by the capture listener (it cancels
+    // recording) and never reaches here because that listener stops propagation.
+    if (dictionaryOpen) {
       setDictionaryOpen(false);
       return;
     }
-    if (event.key === 'Escape' && settingsOpen) {
+    if (advancedOpen) {
+      setAdvancedOpen(false);
+      return;
+    }
+    if (settingsOpen) {
       setSettingsOpen(false);
     }
   });

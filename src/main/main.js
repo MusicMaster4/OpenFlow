@@ -26,6 +26,10 @@ const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = false;
 const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
+const DEFAULT_DUCK_AUDIO = true;
+const DEFAULT_OVERLAY_OPACITY = 100;
+const DEFAULT_OVERLAY_SCALE = 100;
+const DEFAULT_OVERLAY_DYNAMIC_SIZE = false;
 const LOCAL_HISTORY_LIMIT = 100;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
@@ -213,6 +217,10 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Start with the computer disabled.',
     keepAllTranscriptionsOn: 'Saving all local transcriptions.',
     keepAllTranscriptionsOff: `Saving only the latest ${LOCAL_HISTORY_LIMIT} local messages.`,
+    shortcutUpdated: 'Global shortcut updated.',
+    pasteShortcutUpdated: 'Paste-last shortcut updated.',
+    duckAudioOn: 'Other apps will be muted while you dictate.',
+    duckAudioOff: 'Other apps will keep playing while you dictate.',
     trayOpenApp: 'Open app',
     trayHideApp: 'Hide window',
     trayQuit: 'Quit',
@@ -241,6 +249,10 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Inicializacao com o computador desativada.',
     keepAllTranscriptionsOn: 'Salvando todas as transcricoes locais.',
     keepAllTranscriptionsOff: `Salvando apenas as ultimas ${LOCAL_HISTORY_LIMIT} mensagens locais.`,
+    shortcutUpdated: 'Atalho global atualizado.',
+    pasteShortcutUpdated: 'Atalho de colar atualizado.',
+    duckAudioOn: 'Outros apps serao silenciados enquanto voce dita.',
+    duckAudioOff: 'Outros apps continuarao tocando enquanto voce dita.',
     trayOpenApp: 'Abrir OpenFlow',
     trayHideApp: 'Ocultar janela',
     trayQuit: 'Fechar',
@@ -700,6 +712,28 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function normalizeBooleanPreference(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normalizeOverlayOpacity(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return DEFAULT_OVERLAY_OPACITY;
+  }
+
+  return Math.round(clamp(number, 0, 100));
+}
+
+function normalizeOverlayScale(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return DEFAULT_OVERLAY_SCALE;
+  }
+
+  return Math.round(clamp(number, 10, 100));
+}
+
 function getShortcutFromEnv(name, fallback) {
   const value = String(process.env[name] || '')
     .trim()
@@ -795,6 +829,83 @@ function shortcutToElectronAccelerator(shortcut) {
   return acceleratorTokens.join('+');
 }
 
+// Canonical modifier order used when storing/displaying shortcuts. Only one of
+// windows/command is meaningful per platform, so listing both is harmless.
+const SHORTCUT_MODIFIER_ORDER = ['ctrl', 'alt', 'shift', 'windows', 'command'];
+const SHORTCUT_MODIFIER_SET = new Set(SHORTCUT_MODIFIER_ORDER);
+
+function normalizeShortcutToken(token) {
+  const value = String(token || '').trim().toLowerCase();
+  const aliases = {
+    control: 'ctrl',
+    cmd: 'command',
+    option: 'alt',
+    meta: process.platform === 'darwin' ? 'command' : 'windows',
+    os: process.platform === 'darwin' ? 'command' : 'windows',
+    super: process.platform === 'darwin' ? 'command' : 'windows',
+    win: 'windows',
+    commandorcontrol: process.platform === 'darwin' ? 'command' : 'ctrl',
+    esc: 'escape',
+    return: 'enter',
+  };
+  return aliases[value] || value;
+}
+
+function isValidShortcutKeyToken(token) {
+  return (
+    /^[a-z0-9]$/.test(token) ||
+    /^f([1-9]|1[0-2])$/.test(token) ||
+    token === 'space' ||
+    token === 'enter'
+  );
+}
+
+// Returns a cleaned, canonical shortcut string (e.g. "ctrl+alt+v") or the fallback when
+// the input cannot make a sane global shortcut. A valid shortcut is either a single key
+// with at least one modifier, or a pure combination of two or more modifiers.
+function normalizeShortcut(input, fallback) {
+  const rawTokens = String(input || '')
+    .split('+')
+    .map((token) => normalizeShortcutToken(token))
+    .filter(Boolean);
+
+  if (rawTokens.length === 0) {
+    return fallback;
+  }
+
+  const seen = new Set();
+  const modifiers = [];
+  const keys = [];
+
+  for (const token of rawTokens) {
+    if (seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+
+    if (token === 'escape') {
+      return fallback;
+    }
+
+    if (SHORTCUT_MODIFIER_SET.has(token)) {
+      modifiers.push(token);
+    } else if (isValidShortcutKeyToken(token)) {
+      keys.push(token);
+    } else {
+      return fallback;
+    }
+  }
+
+  // A shortcut may hold at most one non-modifier key; a single key with no modifier (or a
+  // lone modifier) is allowed. Esc is rejected above because it is reserved for cancelling.
+  if (keys.length > 1) {
+    return fallback;
+  }
+
+  const orderedModifiers = SHORTCUT_MODIFIER_ORDER.filter((modifier) => modifiers.includes(modifier));
+  return [...orderedModifiers, ...keys].join('+');
+}
+
 function getDefaultsFromEnv() {
   return {
     shortcut: getShortcutFromEnv('FLOW_HOTKEY', DEFAULT_SHORTCUT),
@@ -811,6 +922,10 @@ function getDefaultsFromEnv() {
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
     launchAtLogin: normalizeLaunchAtLoginPreference(DEFAULT_LAUNCH_AT_LOGIN),
     keepAllTranscriptions: DEFAULT_KEEP_ALL_TRANSCRIPTIONS,
+    duckAudioEnabled: DEFAULT_DUCK_AUDIO,
+    overlayOpacity: DEFAULT_OVERLAY_OPACITY,
+    overlayScale: DEFAULT_OVERLAY_SCALE,
+    overlayDynamicSize: DEFAULT_OVERLAY_DYNAMIC_SIZE,
     dictionaryEntries: [],
     overlayPosition: null,
   };
@@ -862,6 +977,10 @@ const state = {
   soundEffectsEnabled: defaults.soundEffectsEnabled,
   launchAtLogin: defaults.launchAtLogin,
   keepAllTranscriptions: defaults.keepAllTranscriptions,
+  duckAudioEnabled: defaults.duckAudioEnabled,
+  overlayOpacity: defaults.overlayOpacity,
+  overlayScale: defaults.overlayScale,
+  overlayDynamicSize: defaults.overlayDynamicSize,
   dictionaryEntries: defaults.dictionaryEntries,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
@@ -1077,10 +1196,16 @@ function createEmptyPersistedState() {
       allowedLanguages: defaults.allowedLanguages,
       interfaceLanguage: defaults.interfaceLanguage,
       model: defaults.model,
+      shortcut: defaults.shortcut,
+      pasteLastShortcut: defaults.pasteLastShortcut,
       showOverlayBar: defaults.showOverlayBar,
       soundEffectsEnabled: defaults.soundEffectsEnabled,
       launchAtLogin: defaults.launchAtLogin,
       keepAllTranscriptions: defaults.keepAllTranscriptions,
+      duckAudioEnabled: defaults.duckAudioEnabled,
+      overlayOpacity: defaults.overlayOpacity,
+      overlayScale: defaults.overlayScale,
+      overlayDynamicSize: defaults.overlayDynamicSize,
       dictionaryEntries: defaults.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
@@ -1115,6 +1240,11 @@ function normalizePersistedState(payload) {
       allowedLanguages: normalizeDetectionLanguages(preferencesSource.allowedLanguages),
       interfaceLanguage: normalizeInterfaceLanguage(preferencesSource.interfaceLanguage),
       model: normalizeModel(preferencesSource.model),
+      shortcut: normalizeShortcut(preferencesSource.shortcut, defaults.shortcut),
+      pasteLastShortcut: normalizeShortcut(
+        preferencesSource.pasteLastShortcut,
+        defaults.pasteLastShortcut,
+      ),
       showOverlayBar:
         typeof preferencesSource.showOverlayBar === 'boolean'
           ? preferencesSource.showOverlayBar
@@ -1129,6 +1259,16 @@ function normalizePersistedState(payload) {
           : defaults.launchAtLogin,
       ),
       keepAllTranscriptions,
+      duckAudioEnabled: normalizeBooleanPreference(
+        preferencesSource.duckAudioEnabled,
+        defaults.duckAudioEnabled,
+      ),
+      overlayOpacity: normalizeOverlayOpacity(preferencesSource.overlayOpacity),
+      overlayScale: normalizeOverlayScale(preferencesSource.overlayScale),
+      overlayDynamicSize: normalizeBooleanPreference(
+        preferencesSource.overlayDynamicSize,
+        defaults.overlayDynamicSize,
+      ),
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
       overlayPosition: defaults.overlayPosition,
     },
@@ -1170,10 +1310,16 @@ function savePersistentState() {
       allowedLanguages: state.allowedLanguages,
       interfaceLanguage: state.interfaceLanguage,
       model: state.model,
+      shortcut: state.shortcut,
+      pasteLastShortcut: state.pasteLastShortcut,
       showOverlayBar: state.showOverlayBar,
       soundEffectsEnabled: state.soundEffectsEnabled,
       launchAtLogin: state.launchAtLogin,
       keepAllTranscriptions: state.keepAllTranscriptions,
+      duckAudioEnabled: state.duckAudioEnabled,
+      overlayOpacity: state.overlayOpacity,
+      overlayScale: state.overlayScale,
+      overlayDynamicSize: state.overlayDynamicSize,
       dictionaryEntries: state.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
@@ -1984,6 +2130,9 @@ function sendAudioCommand(type, payload = {}) {
 
 function engageCaptureMute() {
   if (process.platform === 'win32') {
+    if (!state.duckAudioEnabled) {
+      return;
+    }
     captureMuteDepth += 1;
     if (captureMuteDepth > 1) {
       return;
@@ -2954,6 +3103,40 @@ function bootHotkeyListener() {
   });
 }
 
+// Restart the global hotkey listener so it picks up a freshly changed shortcut.
+// Bumping the token first makes the dying process's async handlers no-ops, then we
+// ask it to shut down cleanly and hard-kill it shortly after as a safety net.
+function restartHotkeyListener() {
+  const dying = hotkeyProcess;
+  if (dying) {
+    const dyingPid = dying.pid;
+    hotkeyToken += 1;
+    hotkeyProcess = null;
+    hotkeyReader = null;
+
+    try {
+      if (dying.stdin && dying.stdin.writable) {
+        dying.stdin.write(`${JSON.stringify({ type: 'shutdown', payload: {} })}\n`);
+      }
+    } catch (_error) {
+      // Best effort.
+    }
+
+    setTimeout(() => {
+      try {
+        if (!dying.killed) {
+          dying.kill();
+        }
+      } catch (_error) {
+        // Best effort.
+      }
+      untrackChildProcess('hotkey_listener', dyingPid);
+    }, 500);
+  }
+
+  bootHotkeyListener();
+}
+
 async function shutdownServiceForRestart() {
   const currentProcess = serviceProcess;
   if (!currentProcess) {
@@ -3049,6 +3232,24 @@ async function applySettings(patch) {
   const nextDictionaryEntries = Object.prototype.hasOwnProperty.call(patch, 'dictionaryEntries')
     ? normalizeDictionaryEntries(patch.dictionaryEntries)
     : state.dictionaryEntries;
+  const nextShortcut = Object.prototype.hasOwnProperty.call(patch, 'shortcut')
+    ? normalizeShortcut(patch.shortcut, state.shortcut)
+    : state.shortcut;
+  const nextPasteLastShortcut = Object.prototype.hasOwnProperty.call(patch, 'pasteLastShortcut')
+    ? normalizeShortcut(patch.pasteLastShortcut, state.pasteLastShortcut)
+    : state.pasteLastShortcut;
+  const nextDuckAudioEnabled =
+    typeof patch.duckAudioEnabled === 'boolean' ? patch.duckAudioEnabled : state.duckAudioEnabled;
+  const nextOverlayOpacity = Object.prototype.hasOwnProperty.call(patch, 'overlayOpacity')
+    ? normalizeOverlayOpacity(patch.overlayOpacity)
+    : state.overlayOpacity;
+  const nextOverlayScale = Object.prototype.hasOwnProperty.call(patch, 'overlayScale')
+    ? normalizeOverlayScale(patch.overlayScale)
+    : state.overlayScale;
+  const nextOverlayDynamicSize =
+    typeof patch.overlayDynamicSize === 'boolean'
+      ? patch.overlayDynamicSize
+      : state.overlayDynamicSize;
   const nextHistory = applyHistoryRetention(state.history, nextKeepAllTranscriptions);
 
   const modelChanged = nextModel !== state.model;
@@ -3059,6 +3260,9 @@ async function applySettings(patch) {
   const launchAtLoginChanged = nextLaunchAtLogin !== state.launchAtLogin;
   const keepAllTranscriptionsChanged =
     nextKeepAllTranscriptions !== state.keepAllTranscriptions;
+  const shortcutChanged = nextShortcut !== state.shortcut;
+  const pasteLastShortcutChanged = nextPasteLastShortcut !== state.pasteLastShortcut;
+  const duckAudioChanged = nextDuckAudioEnabled !== state.duckAudioEnabled;
   const dictionaryChanged =
     JSON.stringify(nextDictionaryEntries) !== JSON.stringify(state.dictionaryEntries);
 
@@ -3101,6 +3305,16 @@ async function applySettings(patch) {
       {},
       nextInterfaceLanguage,
     );
+  } else if (shortcutChanged) {
+    notice = translateMain('shortcutUpdated', {}, nextInterfaceLanguage);
+  } else if (pasteLastShortcutChanged) {
+    notice = translateMain('pasteShortcutUpdated', {}, nextInterfaceLanguage);
+  } else if (duckAudioChanged) {
+    notice = translateMain(
+      nextDuckAudioEnabled ? 'duckAudioOn' : 'duckAudioOff',
+      {},
+      nextInterfaceLanguage,
+    );
   } else if (dictionaryChanged) {
     notice =
       nextDictionaryEntries.length > 0
@@ -3122,10 +3336,16 @@ async function applySettings(patch) {
     allowedLanguages: nextLanguages,
     interfaceLanguage: nextInterfaceLanguage,
     model: nextModel,
+    shortcut: nextShortcut,
+    pasteLastShortcut: nextPasteLastShortcut,
     showOverlayBar: nextShowOverlayBar,
     soundEffectsEnabled: nextSoundEffectsEnabled,
     launchAtLogin: nextLaunchAtLogin,
     keepAllTranscriptions: nextKeepAllTranscriptions,
+    duckAudioEnabled: nextDuckAudioEnabled,
+    overlayOpacity: nextOverlayOpacity,
+    overlayScale: nextOverlayScale,
+    overlayDynamicSize: nextOverlayDynamicSize,
     history: nextHistory,
     dictionaryEntries: nextDictionaryEntries,
     notice,
@@ -3139,6 +3359,18 @@ async function applySettings(patch) {
 
   if (launchAtLoginChanged) {
     syncLaunchAtLoginSetting();
+  }
+
+  // Turning ducking off mid-dictation should immediately give other apps their sound back.
+  if (duckAudioChanged && !nextDuckAudioEnabled) {
+    releaseCaptureMute(true);
+  }
+
+  // A new shortcut needs the Electron paste-last binding re-registered and the global
+  // hotkey listener restarted so it reads the new combination from its environment.
+  if (shortcutChanged || pasteLastShortcutChanged) {
+    registerPasteLastShortcut();
+    restartHotkeyListener();
   }
 
   if (modelChanged) {
@@ -3443,6 +3675,34 @@ ipcMain.on('overlay-drag-move', (_event, position) => {
 ipcMain.on('overlay-drag-end', (_event, position) => {
   positionOverlayWindow(position, true);
 });
+// Live preview while a slider is being dragged: update the overlay in place without
+// persisting or broadcasting to the main window (the slider's "change" event commits).
+ipcMain.on('preview-overlay-style', (_event, patch) => {
+  if (!patch || typeof patch !== 'object') {
+    return;
+  }
+
+  const next = {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'overlayOpacity')) {
+    next.overlayOpacity = normalizeOverlayOpacity(patch.overlayOpacity);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'overlayScale')) {
+    next.overlayScale = normalizeOverlayScale(patch.overlayScale);
+  }
+  if (typeof patch.overlayDynamicSize === 'boolean') {
+    next.overlayDynamicSize = patch.overlayDynamicSize;
+  }
+
+  if (Object.keys(next).length === 0) {
+    return;
+  }
+
+  Object.assign(state, next);
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('app-state', snapshotState());
+    syncOverlayWindow();
+  }
+});
 
 app.on('second-instance', () => {
   showMainWindow();
@@ -3458,6 +3718,8 @@ app.whenReady().then(() => {
     allowedLanguages: persistedState.preferences.allowedLanguages,
     interfaceLanguage: persistedState.preferences.interfaceLanguage,
     model: persistedState.preferences.model,
+    shortcut: persistedState.preferences.shortcut,
+    pasteLastShortcut: persistedState.preferences.pasteLastShortcut,
     modelStats: persistedState.modelStats,
     history: persistedState.history,
     usageStats: persistedState.usageStats,
@@ -3465,6 +3727,10 @@ app.whenReady().then(() => {
     soundEffectsEnabled: persistedState.preferences.soundEffectsEnabled,
     launchAtLogin: persistedState.preferences.launchAtLogin,
     keepAllTranscriptions: persistedState.preferences.keepAllTranscriptions,
+    duckAudioEnabled: persistedState.preferences.duckAudioEnabled,
+    overlayOpacity: persistedState.preferences.overlayOpacity,
+    overlayScale: persistedState.preferences.overlayScale,
+    overlayDynamicSize: persistedState.preferences.overlayDynamicSize,
     dictionaryEntries: persistedState.preferences.dictionaryEntries,
     overlayPosition: defaults.overlayPosition,
   });

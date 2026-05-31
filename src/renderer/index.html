@@ -237,21 +237,18 @@
           <div class="panel--settings">
             <div class="section-head">
               <div>
-                <h2 data-i18n="transcriptionHistory">Transcription history</h2>
-                <p class="section-head__copy" id="transcription-history-copy" data-i18n="transcriptionHistoryCopy">
-                  Control whether the app stores only the latest local messages or every transcription.
-                </p>
+                <h2 data-i18n="muteMusicTitle">Audio</h2>
               </div>
             </div>
-            <label class="toggle-card" for="keep-all-transcriptions">
+            <label class="toggle-card" for="duck-audio">
               <div>
-                <strong data-i18n="keepAllTranscriptions">Keep all transcriptions</strong>
-                <p id="keep-all-transcriptions-copy" data-i18n="keepAllTranscriptionsCopy">
-                  Save every local transcription without the 100-message limit.
+                <strong data-i18n="muteMusic">Duck audio while dictating</strong>
+                <p data-i18n="muteMusicCopy">
+                  Mute other apps' sound while you speak, then restore it afterwards.
                 </p>
               </div>
               <span class="toggle-switch">
-                <input id="keep-all-transcriptions" type="checkbox" />
+                <input id="duck-audio" type="checkbox" />
                 <span></span>
               </span>
             </label>
@@ -290,18 +287,6 @@
           <div class="panel--settings">
             <div class="section-head">
               <div>
-                <h2 data-i18n="transcriptionModels">Transcription models</h2>
-              </div>
-              <button class="secondary-button" id="reset-stats" type="button" data-i18n="resetAverage">
-                Reset average
-              </button>
-            </div>
-            <div class="model-list" id="model-list"></div>
-          </div>
-
-          <div class="panel--settings">
-            <div class="section-head">
-              <div>
                 <h2 data-i18n="systemDiagnostics">System diagnostics</h2>
               </div>
             </div>
@@ -319,6 +304,156 @@
                 <dd id="device-note">No notes.</dd>
               </div>
             </dl>
+          </div>
+
+          <button class="advanced-entry" id="open-advanced" type="button">
+            <span class="advanced-entry__copy">
+              <strong data-i18n="advancedSettings">Advanced settings</strong>
+              <span data-i18n="advancedSettingsCopy">Shortcuts, model, history, and floating bar customization.</span>
+            </span>
+            <span class="advanced-entry__chevron" aria-hidden="true">&rsaquo;</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="settings-backdrop hidden" id="advanced-backdrop"></div>
+      <aside
+        class="settings-drawer hidden"
+        id="advanced-drawer"
+        aria-hidden="true"
+        aria-labelledby="advanced-title"
+      >
+        <div class="settings-drawer__header">
+          <div>
+            <h2 id="advanced-title" data-i18n="advancedSettings">Advanced settings</h2>
+            <p class="section-head__copy" data-i18n="advancedSettingsCopy">
+              Shortcuts, model, history, and floating bar customization.
+            </p>
+          </div>
+          <button class="secondary-button" id="close-advanced" type="button" data-i18n="back">
+            Back
+          </button>
+        </div>
+
+        <div class="settings-stack">
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2 data-i18n="shortcuts">Shortcuts</h2>
+                <p class="section-head__copy" data-i18n="shortcutsCopy">
+                  Choose the keys you press to dictate and to paste.
+                </p>
+              </div>
+            </div>
+            <div class="shortcut-setting">
+              <div class="shortcut-setting__info">
+                <strong data-i18n="globalShortcut">Global shortcut</strong>
+                <p data-i18n="globalShortcutCopy">Hold to dictate. Add Space while holding for hands-free.</p>
+              </div>
+              <button
+                class="shortcut-capture"
+                id="capture-shortcut"
+                type="button"
+                data-shortcut-target="shortcut"
+              >
+                <span class="shortcut-capture__keys" id="shortcut-capture-keys">--</span>
+              </button>
+            </div>
+            <div class="shortcut-setting">
+              <div class="shortcut-setting__info">
+                <strong data-i18n="pasteLastShortcut">Paste last</strong>
+                <p data-i18n="pasteLastCopy">Paste your most recent transcription into any app.</p>
+              </div>
+              <button
+                class="shortcut-capture"
+                id="capture-paste-shortcut"
+                type="button"
+                data-shortcut-target="pasteLastShortcut"
+              >
+                <span class="shortcut-capture__keys" id="paste-shortcut-capture-keys">--</span>
+              </button>
+            </div>
+            <p class="shortcut-hint" data-i18n="shortcutHint">
+              Click a shortcut, then press the key combination you want. Press Esc to cancel.
+            </p>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2 data-i18n="floatingBarCustomization">Floating bar appearance</h2>
+                <p class="section-head__copy" data-i18n="floatingBarCustomizationCopy">
+                  Fine-tune how the floating pill looks on screen.
+                </p>
+              </div>
+            </div>
+            <div class="slider-card">
+              <div class="slider-card__head">
+                <strong data-i18n="overlayOpacity">Pill opacity</strong>
+                <span class="slider-card__value" id="overlay-opacity-value">100%</span>
+              </div>
+              <p data-i18n="overlayOpacityCopy">
+                Transparency of the pill background. The effects stay fully visible.
+              </p>
+              <input class="slider" id="overlay-opacity" type="range" min="0" max="100" step="1" />
+            </div>
+            <div class="slider-card">
+              <div class="slider-card__head">
+                <strong data-i18n="overlaySize">Pill size</strong>
+                <span class="slider-card__value" id="overlay-scale-value">100%</span>
+              </div>
+              <p data-i18n="overlaySizeCopy">
+                Overall size of the floating pill (100% is the default).
+              </p>
+              <input class="slider" id="overlay-scale" type="range" min="10" max="100" step="1" />
+            </div>
+            <label class="toggle-card" for="overlay-dynamic-size">
+              <div>
+                <strong data-i18n="overlayDynamicSize">Dynamic size</strong>
+                <p data-i18n="overlayDynamicSizeCopy">
+                  Shrink the pill to half size until you start speaking, then grow it to full size.
+                </p>
+              </div>
+              <span class="toggle-switch">
+                <input id="overlay-dynamic-size" type="checkbox" />
+                <span></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2 data-i18n="transcriptionHistory">Transcription history</h2>
+                <p class="section-head__copy" id="transcription-history-copy" data-i18n="transcriptionHistoryCopy">
+                  Control whether the app stores only the latest local messages or every transcription.
+                </p>
+              </div>
+            </div>
+            <label class="toggle-card" for="keep-all-transcriptions">
+              <div>
+                <strong data-i18n="keepAllTranscriptions">Keep all transcriptions</strong>
+                <p id="keep-all-transcriptions-copy" data-i18n="keepAllTranscriptionsCopy">
+                  Save every local transcription without the 100-message limit.
+                </p>
+              </div>
+              <span class="toggle-switch">
+                <input id="keep-all-transcriptions" type="checkbox" />
+                <span></span>
+              </span>
+            </label>
+          </div>
+
+          <div class="panel--settings">
+            <div class="section-head">
+              <div>
+                <h2 data-i18n="transcriptionModels">Transcription models</h2>
+              </div>
+              <button class="secondary-button" id="reset-stats" type="button" data-i18n="resetAverage">
+                Reset average
+              </button>
+            </div>
+            <div class="model-list" id="model-list"></div>
           </div>
         </div>
       </aside>

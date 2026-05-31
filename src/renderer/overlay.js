@@ -22,6 +22,9 @@ let currentOverlayState = {
   audioLevel: 0,
 };
 let soundEffectsEnabled = true;
+let overlayBgOpacity = 1;
+let overlayScale = 1;
+let overlayDynamicSize = false;
 let feedbackTimer = null;
 let activeFeedback = null;
 let activeSoundKey = null;
@@ -170,6 +173,20 @@ function handlePointerMove(event) {
   queueDrag(point);
 }
 
+// Apply the user's floating-pill customization. Opacity only fades the dark pill
+// backdrop (drawn on the ::before layer); the wave/loader/idle effects stay fully
+// opaque. Scale shrinks the whole pill. With dynamic size, the pill stays at full size
+// while recording AND while the transcription/paste animation runs, shrinking back to
+// half only once the text has been pasted (idle).
+function applyOverlayStyle(mode, phase) {
+  const root = document.documentElement;
+  root.style.setProperty('--overlay-bg-opacity', overlayBgOpacity.toFixed(3));
+
+  const expanded = mode === 'recording' || phase === 'transcribing';
+  const effectiveScale = overlayDynamicSize && !expanded ? overlayScale * 0.5 : overlayScale;
+  root.style.setProperty('--overlay-scale', effectiveScale.toFixed(3));
+}
+
 function renderOverlay(state) {
   currentOverlayState = {
     phase: state.phase,
@@ -177,8 +194,13 @@ function renderOverlay(state) {
     audioLevel: state.audioLevel ?? targetAudioLevel,
   };
 
+  overlayBgOpacity = Math.max(0, Math.min(1, Number(state.overlayOpacity ?? 100) / 100));
+  overlayScale = Math.max(0.1, Math.min(1, Number(state.overlayScale ?? 100) / 100));
+  overlayDynamicSize = Boolean(state.overlayDynamicSize);
+
   const mode = getOverlayMode(state);
   const handsFree = isHandsFreeActive(state);
+  applyOverlayStyle(mode, state.phase);
   if (mode !== 'idle' && activeFeedback) {
     clearActiveFeedback();
   }

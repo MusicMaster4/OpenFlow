@@ -8,6 +8,9 @@
   --overlay-ready-ring: rgba(255, 255, 255, 0.12);
   --overlay-ready-shadow: rgba(255, 255, 255, 0.08);
   --overlay-ready-text: rgba(255, 255, 255, 0.92);
+  /* User-customizable floating pill appearance. */
+  --overlay-bg-opacity: 1;
+  --overlay-scale: 1;
 }
 
 :root[data-theme="light"] {
@@ -41,6 +44,9 @@ html, body {
   background: transparent;
   padding: 0;
   overflow: hidden;
+  transform: scale(var(--overlay-scale, 1));
+  transform-origin: center;
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .overlay-pill {
@@ -51,19 +57,32 @@ html, body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--overlay-bg);
-  box-shadow: var(--overlay-shadow);
+  background: transparent;
   overflow: hidden;
   contain: paint;
   cursor: grab;
   user-select: none;
-  transition: background-color 0.3s ease, box-shadow 0.3s ease, transform 0.1s ease;
+  transition: transform 0.1s ease;
+}
+
+/* The dark pill backdrop lives on a pseudo-element so the opacity control fades only
+   the backdrop, never the wave/loader/idle effects layered above it. */
+.overlay-pill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--overlay-bg);
+  box-shadow: var(--overlay-shadow);
+  opacity: var(--overlay-bg-opacity, 1);
+  transition: opacity 0.2s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+  z-index: 0;
 }
 
 /* Keep the ready state on the same rounded pill silhouette. A drop shadow here would
    spill past the pill and get clipped by the transparent window into a dark rectangle
    in the corners, so the pill keeps its normal shadow only. */
-.overlay-shell[data-feedback='ready'] .overlay-pill {
+.overlay-shell[data-feedback='ready'] .overlay-pill::before {
   background: var(--overlay-bg);
   box-shadow: var(--overlay-shadow);
 }
@@ -86,6 +105,7 @@ html, body {
   height: 6px;
   border-radius: 50%;
   background: var(--overlay-dot);
+  z-index: 1;
   animation: pulse-badge 0.75s infinite alternate ease-in-out; /* Pulsing twice as fast */
 }
 
