@@ -3776,32 +3776,39 @@ function createAutoUpdaterAppAdapter() {
   };
 }
 
+function attachAutoUpdaterHttpExecutor(updater) {
+  const { ElectronHttpExecutor } = require('electron-updater/out/electronHttpExecutor');
+  updater.httpExecutor = new ElectronHttpExecutor((authInfo, callback) =>
+    updater.emit('login', authInfo, callback),
+  );
+  return updater;
+}
+
 function createAutoUpdater() {
   const updaterModule = require('electron-updater');
   const updaterApp = createAutoUpdaterAppAdapter();
+  let updater = null;
 
   if (process.platform === 'win32') {
-    return new updaterModule.NsisUpdater(null, updaterApp);
-  }
-  if (process.platform === 'darwin') {
-    return new updaterModule.MacUpdater(null, updaterApp);
-  }
-
-  const packageTypePath = path.join(process.resourcesPath || '', 'package-type');
-  if (fs.existsSync(packageTypePath)) {
-    const packageType = fs.readFileSync(packageTypePath, 'utf8').trim();
-    if (packageType === 'deb') {
-      return new updaterModule.DebUpdater(null, updaterApp);
+    updater = new updaterModule.NsisUpdater(null, updaterApp);
+  } else if (process.platform === 'darwin') {
+    updater = new updaterModule.MacUpdater(null, updaterApp);
+  } else {
+    const packageTypePath = path.join(process.resourcesPath || '', 'package-type');
+    if (fs.existsSync(packageTypePath)) {
+      const packageType = fs.readFileSync(packageTypePath, 'utf8').trim();
+      if (packageType === 'deb') {
+        updater = new updaterModule.DebUpdater(null, updaterApp);
+      } else if (packageType === 'rpm') {
+        updater = new updaterModule.RpmUpdater(null, updaterApp);
+      } else if (packageType === 'pacman') {
+        updater = new updaterModule.PacmanUpdater(null, updaterApp);
+      }
     }
-    if (packageType === 'rpm') {
-      return new updaterModule.RpmUpdater(null, updaterApp);
-    }
-    if (packageType === 'pacman') {
-      return new updaterModule.PacmanUpdater(null, updaterApp);
-    }
+    updater = updater || new updaterModule.AppImageUpdater(null, updaterApp);
   }
 
-  return new updaterModule.AppImageUpdater(null, updaterApp);
+  return attachAutoUpdaterHttpExecutor(updater);
 }
 
 async function fetchGithubReleases(pathname) {
