@@ -3608,6 +3608,32 @@ function normalizeReleaseVersion(version) {
     .split(/[+-]/)[0];
 }
 
+function toSemverCompatibleVersion(version) {
+  const parts = normalizeReleaseVersion(version).split('.').map((part) => Number.parseInt(part, 10) || 0);
+  while (parts.length < 3) {
+    parts.push(0);
+  }
+
+  return `${parts[0]}.${parts[1]}.${parts[2]}`;
+}
+
+function formatDisplayVersion(version) {
+  const normalized = normalizeReleaseVersion(version);
+  const parts = normalized.split('.');
+  if (parts.length < 3) {
+    return normalized;
+  }
+
+  const major = Number.parseInt(parts[0], 10);
+  const minor = Number.parseInt(parts[1], 10);
+  const patch = Number.parseInt(parts[2], 10);
+  if ([major, minor, patch].some((part) => Number.isNaN(part))) {
+    return normalized;
+  }
+
+  return `${major}.${minor}.${String(patch).padStart(3, '0')}`;
+}
+
 function compareReleaseVersions(left, right) {
   const leftParts = normalizeReleaseVersion(left).split('.').map((part) => Number.parseInt(part, 10) || 0);
   const rightParts = normalizeReleaseVersion(right).split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -3709,6 +3735,75 @@ function getGithubReleaseDownloadUrl(release) {
   return bestAsset ? bestAsset.asset.browser_download_url : null;
 }
 
+function getUpdaterCacheDir() {
+  const homeDir = require('os').homedir();
+  if (process.platform === 'win32') {
+    return process.env.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(homeDir, 'Library', 'Caches');
+  }
+  return process.env.XDG_CACHE_HOME || path.join(homeDir, '.cache');
+}
+
+function createAutoUpdaterAppAdapter() {
+  const updaterVersion = toSemverCompatibleVersion(app.getVersion());
+  return {
+    whenReady: () => app.whenReady(),
+    get version() {
+      return updaterVersion;
+    },
+    get name() {
+      return app.getName();
+    },
+    get isPackaged() {
+      return app.isPackaged === true;
+    },
+    get appUpdateConfigPath() {
+      return this.isPackaged
+        ? path.join(process.resourcesPath, 'app-update.yml')
+        : path.join(app.getAppPath(), 'dev-app-update.yml');
+    },
+    get userDataPath() {
+      return app.getPath('userData');
+    },
+    get baseCachePath() {
+      return getUpdaterCacheDir();
+    },
+    quit: () => app.quit(),
+    relaunch: () => app.relaunch(),
+    onQuit: (handler) => app.once('quit', (_event, exitCode) => handler(exitCode)),
+  };
+}
+
+function createAutoUpdater() {
+  const updaterModule = require('electron-updater');
+  const updaterApp = createAutoUpdaterAppAdapter();
+
+  if (process.platform === 'win32') {
+    return new updaterModule.NsisUpdater(null, updaterApp);
+  }
+  if (process.platform === 'darwin') {
+    return new updaterModule.MacUpdater(null, updaterApp);
+  }
+
+  const packageTypePath = path.join(process.resourcesPath || '', 'package-type');
+  if (fs.existsSync(packageTypePath)) {
+    const packageType = fs.readFileSync(packageTypePath, 'utf8').trim();
+    if (packageType === 'deb') {
+      return new updaterModule.DebUpdater(null, updaterApp);
+    }
+    if (packageType === 'rpm') {
+      return new updaterModule.RpmUpdater(null, updaterApp);
+    }
+    if (packageType === 'pacman') {
+      return new updaterModule.PacmanUpdater(null, updaterApp);
+    }
+  }
+
+  return new updaterModule.AppImageUpdater(null, updaterApp);
+}
+
 async function fetchGithubReleases(pathname) {
   if (typeof fetch !== 'function') {
     throw new Error('Fetch is not available in this runtime.');
@@ -3774,7 +3869,7 @@ async function handleMissingUpdateMetadata(error) {
 
   setUpdateState({
     status: 'manual-download',
-    availableVersion: latestVersion,
+    availableVersion: formatDisplayVersion(latestVersion),
     progress: 0,
     message: '',
     releaseUrl: getGithubReleaseUrl(latestRelease),
@@ -3793,7 +3888,7 @@ async function openUpdateDownloadTarget() {
       url = getGithubReleaseDownloadUrl(latestRelease) || getGithubReleaseUrl(latestRelease);
       setUpdateState({
         status: 'manual-download',
-        availableVersion: latestVersion,
+        availableVersion: formatDisplayVersion(latestVersion),
         progress: 0,
         message: '',
         releaseUrl: getGithubReleaseUrl(latestRelease),
@@ -3818,7 +3913,7 @@ function loadAutoUpdater() {
   autoUpdaterInitialized = true;
 
   try {
-    ({ autoUpdater } = require('electron-updater'));
+    autoUpdater = createAutoUpdater();
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.channel = getUpdateChannel();
@@ -3828,7 +3923,7 @@ function loadAutoUpdater() {
     autoUpdater.on('update-available', (info) =>
       setUpdateState({
         status: 'available',
-        availableVersion: (info && info.version) || null,
+        availableVersion: formatDisplayVersion((info && info.version) || null),
         progress: 0,
         message: '',
         releaseUrl: null,
@@ -3853,7 +3948,7 @@ function loadAutoUpdater() {
     autoUpdater.on('update-downloaded', (info) =>
       setUpdateState({
         status: 'downloaded',
-        availableVersion: (info && info.version) || updateState.availableVersion,
+        availableVersion: formatDisplayVersion((info && info.version) || updateState.availableVersion),
         progress: 100,
         message: '',
       }),
