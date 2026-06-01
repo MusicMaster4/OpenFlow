@@ -212,6 +212,18 @@ jobs:
       - name: Build macOS package
         run: npm run dist:mac:${{ matrix.electron_arch }}
 
+      - name: Use architecture-specific update metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="dist/latest-mac.yml"
+          target="dist/latest-${{ matrix.electron_arch }}-mac.yml"
+          if [[ ! -f "$metadata" ]]; then
+            echo "Expected macOS update metadata not found: $metadata"
+            exit 1
+          fi
+          mv "$metadata" "$target"
+
       - name: Verify packaged binary architectures
         shell: bash
         run: |

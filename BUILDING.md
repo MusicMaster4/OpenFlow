@@ -131,7 +131,7 @@ npm run dist:win
 
 Expected outputs:
 
-- `dist/OpenFlow Setup <version>.exe`
+- `dist/OpenFlow-Setup-<version>-x64.exe`
 - `dist/win-unpacked/`
 
 ## Build macOS
@@ -180,23 +180,26 @@ Release flow:
 5. Review the draft and press **Publish release**. Once it is published, installed apps
    detect it: OpenFlow checks on startup and from **Settings → Software update**, where the
    user can download and then restart to install. `electron-updater` automatically selects
-   the correct OS asset and, on macOS, the correct CPU architecture (Intel vs Apple Silicon).
+   the correct OS asset. On macOS, OpenFlow uses architecture-specific update channels:
+   `latest-x64-mac.yml` for Intel and `latest-arm64-mac.yml` for Apple Silicon.
 
 To publish locally instead of via CI, set a `GH_TOKEN` with `repo` scope and run
 `OPENFLOW_PUBLISH=always npm run dist:win` (Windows) or
 `npm run publish:mac:arm64` / `npm run publish:mac:x64` (macOS).
 
-### macOS multi-architecture caveat
+### macOS update metadata
 
-The two macOS architectures are built on separate runners and published to the same
-release, so each job writes its own `latest-mac.yml`. If both jobs publish, the last one
-wins and only that architecture gets a clean auto-update entry. Until the two metadata
-files are merged (or both arches are built in a single `electron-builder` invocation),
-treat macOS auto-update as best effort — the Windows path is the fully supported one.
+The two macOS architectures are built separately and published to the same release.
+Each build renames Electron Builder's generated `latest-mac.yml` before upload so the
+release contains both `latest-x64-mac.yml` and `latest-arm64-mac.yml`. The app selects
+the matching channel at runtime using `process.arch`, so Intel and Apple Silicon updates
+do not overwrite each other.
 
 ## Updating an existing installation
 
-The Windows NSIS installer upgrades a previous install in place and keeps all user data,
-because settings, history, and the dictionary live in the user data directory
-(`%APPDATA%/OpenFlow/store/settings.json`), not in the install folder. `deleteAppDataOnUninstall`
-is set to `false`, so even a manual uninstall/reinstall preserves preferences and rules.
+The Windows NSIS installer runs elevated and installs per machine so updates are applied
+from a stable machine-wide install location. It upgrades a previous install in place and
+keeps all user data, because settings, history, and the dictionary live in the user data
+directory (`%APPDATA%/OpenFlow/store/settings.json`), not in the install folder.
+`deleteAppDataOnUninstall` is set to `false`, so even a manual uninstall/reinstall
+preserves preferences and rules.

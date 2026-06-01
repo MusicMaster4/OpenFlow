@@ -140,11 +140,13 @@ const TRANSLATIONS = {
       'Version {version} is available. Open the GitHub download page to install it.',
     updateError: 'Update failed: {message}',
     updateUnsupported: 'Updates are available only in the installed app.',
+    updateUpdaterUnavailable:
+      'Automatic updates are not configured in this build. Open the download page to install the latest OpenFlow.',
     updateMetadataUnavailable: 'Auto-update metadata was not found for the latest GitHub release.',
     updateMetadataUnavailableForVersion:
       'Version {version} is available, but auto-update metadata was not found for that GitHub release.',
     updateNotPackaged:
-      'This installed version does not support in-app updates yet. Install the latest build once to enable them.',
+      'In-app updates work only from the installed app. OpenFlow is currently running from a development or unpacked build.',
   },
   'pt-BR': {
     appTagline: 'Escreva na velocidade do pensamento.',
@@ -273,12 +275,14 @@ const TRANSLATIONS = {
       'A versao {version} esta disponivel. Abra a pagina de download do GitHub para instalar.',
     updateError: 'Falha na atualização: {message}',
     updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
+    updateUpdaterUnavailable:
+      'As atualizacoes automaticas nao estao configuradas nesta build. Abra a pagina de download para instalar o OpenFlow mais recente.',
     updateMetadataUnavailable:
       'Os metadados de atualização não foram encontrados no release mais recente do GitHub.',
     updateMetadataUnavailableForVersion:
       'A versão {version} está disponível, mas os metadados de atualização não foram encontrados no release do GitHub.',
     updateNotPackaged:
-      'Esta versão instalada ainda não suporta atualização pelo app. Instale a versão mais recente uma vez para habilitar.',
+      'As atualizacoes pelo app funcionam somente no app instalado. O OpenFlow esta rodando por uma build de desenvolvimento ou descompactada.',
   },
 };
 
@@ -1287,12 +1291,16 @@ function describeUpdate(update) {
       };
     case 'not-available':
       return { text: t('updateUpToDate'), action: 'check', busy: false, error: false };
+    case 'not-packaged':
+      return { text: t('updateNotPackaged'), action: 'open-download', busy: false, error: false };
+    case 'updater-unavailable':
+      return { text: t('updateUpdaterUnavailable'), action: 'open-download', busy: false, error: false };
     case 'unsupported':
       return { text: t('updateUnsupported'), action: 'check', busy: false, error: false };
     case 'error': {
       const message = update.message || '';
       // A release can exist without the electron-updater metadata files.
-      if (/(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message)) {
+      if (/(app-update\.yml|latest(?:-[a-z0-9_-]+)?(?:-mac)?\.yml)/i.test(message)) {
         return {
           text: update.availableVersion
             ? template('updateMetadataUnavailableForVersion', { version: update.availableVersion })

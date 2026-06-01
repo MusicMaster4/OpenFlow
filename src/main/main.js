@@ -3576,7 +3576,7 @@ function shutdownChildren() {
 let autoUpdater = null;
 let autoUpdaterInitialized = false;
 let updateState = {
-  status: 'idle', // idle | checking | available | manual-download | not-available | downloading | downloaded | error | unsupported
+  status: 'idle', // idle | checking | available | manual-download | not-available | downloading | downloaded | error | not-packaged | updater-unavailable
   availableVersion: null,
   progress: 0,
   message: '',
@@ -3625,7 +3625,15 @@ function compareReleaseVersions(left, right) {
 
 function isMissingUpdateMetadataError(error) {
   const message = String((error && error.message) || error || '');
-  return /(app-update\.yml|latest(?:-mac)?\.yml|latest\.yml)/i.test(message);
+  return /(app-update\.yml|latest(?:-[a-z0-9_-]+)?(?:-mac)?\.yml)/i.test(message);
+}
+
+function getUpdateChannel() {
+  if (process.platform === 'darwin' && (process.arch === 'arm64' || process.arch === 'x64')) {
+    return `latest-${process.arch}`;
+  }
+
+  return 'latest';
 }
 
 function getGithubReleaseVersion(release) {
@@ -3813,8 +3821,9 @@ function loadAutoUpdater() {
     ({ autoUpdater } = require('electron-updater'));
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
-    // electron-updater resolves the correct asset for the running OS, and on macOS the
-    // correct CPU architecture (Intel vs Apple Silicon), from the published metadata.
+    autoUpdater.channel = getUpdateChannel();
+    // macOS publishes one update metadata file per CPU architecture so Intel and
+    // Apple Silicon builds never overwrite each other in the same GitHub release.
     autoUpdater.on('checking-for-update', () => setUpdateState({ status: 'checking', message: '' }));
     autoUpdater.on('update-available', (info) =>
       setUpdateState({
@@ -3856,7 +3865,12 @@ function loadAutoUpdater() {
     });
   } catch (error) {
     autoUpdater = null;
-    setUpdateState({ status: 'unsupported', message: String((error && error.message) || error) });
+    setUpdateState({
+      status: 'updater-unavailable',
+      message: String((error && error.message) || error),
+      releaseUrl: getGithubReleasesUrl(),
+      downloadUrl: null,
+    });
   }
 
   return autoUpdater;
@@ -3866,8 +3880,10 @@ ipcMain.handle('get-update-state', async () => getUpdateSnapshot());
 ipcMain.handle('check-for-updates', async () => {
   if (!app.isPackaged) {
     setUpdateState({
-      status: 'unsupported',
+      status: 'not-packaged',
       message: 'Updates are only available in the installed app.',
+      releaseUrl: getGithubReleasesUrl(),
+      downloadUrl: null,
     });
     return getUpdateSnapshot();
   }

@@ -69,17 +69,19 @@ jobs:
         run: chmod +x ./scripts/build-python.sh
 
       - name: Build macOS package
-        env:
-          # On a v* tag, publish the dmg/zip + latest-mac.yml to the GitHub release that
-          # powers the in-app auto-update. Branch pushes only produce CI artifacts.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:mac:${{ matrix.electron_arch }}
+
+      - name: Use architecture-specific update metadata
         shell: bash
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            npm run publish:mac:${{ matrix.electron_arch }}
-          else
-            npm run dist:mac:${{ matrix.electron_arch }}
+          set -euo pipefail
+          metadata="dist/latest-mac.yml"
+          target="dist/latest-${{ matrix.electron_arch }}-mac.yml"
+          if [[ ! -f "$metadata" ]]; then
+            echo "Expected macOS update metadata not found: $metadata"
+            exit 1
           fi
+          mv "$metadata" "$target"
 
       - name: Verify packaged binary architectures
         shell: bash
@@ -112,7 +114,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shasum -a 256 dist/*.dmg dist/*.zip > "dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt"
+          find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 > "dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt"
+
+      - name: Publish tag release artifacts
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --draft --title "OpenFlow $version" \
+              --notes "Draft release generated from tag $tag." || true
+          fi
+          gh release view "$tag" >/dev/null
+
+          mapfile -d '' assets < <(find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' -o -name 'SHA256SUMS-macos-*.txt' \) -print0 | sort -z)
+          gh release upload "$tag" "${assets[@]}" --clobber
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -121,5 +145,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/*.yml
+            dist/*.blockmap
             dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt
           if-no-files-found: error

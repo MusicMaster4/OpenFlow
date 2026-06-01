@@ -10,9 +10,13 @@ if (process.platform !== 'win32') {
 const projectRoot = path.resolve(__dirname, '..');
 const packageJson = require(path.join(projectRoot, 'package.json'));
 const productName = packageJson.productName || packageJson.name || 'OpenFlow';
+const publishConfig = Array.isArray(packageJson.build?.publish)
+  ? packageJson.build.publish.find((entry) => entry && entry.provider === 'github')
+  : null;
 const electronBuilderCli = path.join(projectRoot, 'node_modules', 'electron-builder', 'cli.js');
 const distDir = path.join(projectRoot, 'dist');
 const unpackedDir = path.join(distDir, 'win-unpacked');
+const appUpdateConfigPath = path.join(unpackedDir, 'resources', 'app-update.yml');
 const executablePath = path.join(unpackedDir, `${productName}.exe`);
 const iconPath = path.join(projectRoot, 'src', 'assets', 'openflow.ico');
 const vendoredRceditPath = path.join(
@@ -77,6 +81,24 @@ function resolveRceditPath() {
   return matches[0]?.fullPath || null;
 }
 
+function writeAppUpdateConfig() {
+  if (!publishConfig?.owner || !publishConfig?.repo) {
+    throw new Error('Missing GitHub publish owner/repo in package.json build.publish.');
+  }
+
+  fs.mkdirSync(path.dirname(appUpdateConfigPath), { recursive: true });
+  fs.writeFileSync(
+    appUpdateConfigPath,
+    [
+      'provider: github',
+      `owner: ${publishConfig.owner}`,
+      `repo: ${publishConfig.repo}`,
+      `updaterCacheDirName: ${packageJson.name}-updater`,
+      '',
+    ].join('\n'),
+  );
+}
+
 // Set OPENFLOW_PUBLISH=always (with a valid GH_TOKEN) to upload the installer and
 // latest.yml metadata to the GitHub release that powers the in-app auto-update.
 const publishMode = process.env.OPENFLOW_PUBLISH === 'always' ? 'always' : 'never';
@@ -118,6 +140,8 @@ async function main() {
     '--set-icon',
     iconPath,
   ]);
+
+  writeAppUpdateConfig();
 
   run(process.execPath, [
     electronBuilderCli,
