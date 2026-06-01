@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('flowLocal', {
   getUpdateState: () => ipcRenderer.invoke('get-update-state'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  openUpdateDownload: () => ipcRenderer.invoke('open-update-download'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   onUpdateStatus: (callback) => {
     const listener = (_event, status) => callback(status);

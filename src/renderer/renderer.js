@@ -128,6 +128,7 @@ const TRANSLATIONS = {
     softwareUpdateCopy: 'Install the newest OpenFlow build straight from inside the app.',
     checkForUpdates: 'Check for updates',
     downloadUpdate: 'Update',
+    openDownloadPage: 'Open download',
     installUpdate: 'Restart & install',
     updateIdle: 'Check whether a newer version is available.',
     updateChecking: 'Checking for updates...',
@@ -135,6 +136,8 @@ const TRANSLATIONS = {
     updateAvailable: 'Version {version} is available.',
     updateDownloading: 'Downloading update... {percent}%',
     updateDownloaded: 'Version {version} is ready. Restart to finish installing.',
+    updateManualDownload:
+      'Version {version} is available. Open the GitHub download page to install it.',
     updateError: 'Update failed: {message}',
     updateUnsupported: 'Updates are available only in the installed app.',
     updateMetadataUnavailable: 'Auto-update metadata was not found for the latest GitHub release.',
@@ -258,6 +261,7 @@ const TRANSLATIONS = {
     softwareUpdateCopy: 'Instale a versão mais recente do OpenFlow direto pelo app.',
     checkForUpdates: 'Procurar atualizações',
     downloadUpdate: 'Atualizar',
+    openDownloadPage: 'Abrir download',
     installUpdate: 'Reiniciar e instalar',
     updateIdle: 'Verifique se há uma versão mais nova disponível.',
     updateChecking: 'Procurando atualizações...',
@@ -265,6 +269,8 @@ const TRANSLATIONS = {
     updateAvailable: 'A versão {version} está disponível.',
     updateDownloading: 'Baixando atualização... {percent}%',
     updateDownloaded: 'Versão {version} pronta. Reinicie para concluir a instalação.',
+    updateManualDownload:
+      'A versao {version} esta disponivel. Abra a pagina de download do GitHub para instalar.',
     updateError: 'Falha na atualização: {message}',
     updateUnsupported: 'As atualizações só estão disponíveis no app instalado.',
     updateMetadataUnavailable:
@@ -1258,6 +1264,13 @@ function describeUpdate(update) {
         busy: false,
         error: false,
       };
+    case 'manual-download':
+      return {
+        text: template('updateManualDownload', { version: update.availableVersion || '' }),
+        action: 'open-download',
+        busy: false,
+        error: false,
+      };
     case 'downloading':
       return {
         text: template('updateDownloading', { percent: Math.round(update.progress || 0) }),
@@ -1322,6 +1335,8 @@ function renderUpdateState(update = lastUpdate) {
   const buttonLabel =
     info.action === 'update'
       ? t('downloadUpdate')
+      : info.action === 'open-download'
+        ? t('openDownloadPage')
       : info.action === 'install'
         ? t('installUpdate')
         : t('checkForUpdates');
@@ -1744,6 +1759,10 @@ function setupHandlers() {
     }
     if (action === 'install') {
       await window.flowLocal.installUpdate();
+      return;
+    }
+    if (action === 'open-download') {
+      renderUpdateState(await window.flowLocal.openUpdateDownload());
       return;
     }
     renderUpdateState(await window.flowLocal.checkForUpdates());

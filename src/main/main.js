@@ -11,7 +11,9 @@ const {
   globalShortcut,
   ipcMain,
   nativeImage,
+  powerMonitor,
   screen,
+  shell,
 } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
@@ -1489,15 +1491,26 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
     return null;
   }
 
-  const hadPosition = Boolean(normalizeOverlayPosition(preferredPosition));
-  const bounds = getOverlayBounds(preferredPosition);
+  const normalizedPosition = normalizeOverlayPosition(preferredPosition);
+  const hadPosition = Boolean(normalizedPosition);
+  const bounds = getOverlayBounds(normalizedPosition);
   overlayWindow.setBounds(bounds, false);
+
+  const wasClamped =
+    normalizedPosition &&
+    (normalizedPosition.x !== bounds.x || normalizedPosition.y !== bounds.y);
 
   if (!hadPosition) {
     state.overlayPosition = {
       x: bounds.x,
       y: bounds.y,
     };
+  } else if (!persist && wasClamped) {
+    state.overlayPosition = {
+      x: bounds.x,
+      y: bounds.y,
+    };
+    savePersistentState();
   }
 
   if (persist) {
@@ -1534,7 +1547,7 @@ let overlayRecoveryPending = false;
 
 // If the overlay renderer crashes or hangs, recreate it so the indicator pill and
 // sound effects come back without the user having to restart the whole app.
-function recoverOverlayWindow() {
+function recoverOverlayWindow(delayMs = 400) {
   if (overlayRecoveryPending || isQuitting) {
     return;
   }
@@ -1557,7 +1570,27 @@ function recoverOverlayWindow() {
 
     overlayWindow = null;
     createOverlayWindow();
-  }, 400);
+  }, delayMs);
+}
+
+function resyncOverlayWindowPosition() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    return;
+  }
+
+  positionOverlayWindow(state.overlayPosition, true);
+  syncOverlayWindow();
+}
+
+function recoverOverlayWindowAfterResume() {
+  if (isQuitting) {
+    return;
+  }
+
+  setTimeout(resyncOverlayWindowPosition, 300);
+  // Windows can keep the transparent always-on-top child window in a stale input
+  // state after sleep/resume. Recreating it clears pointer capture and drag state.
+  recoverOverlayWindow(900);
 }
 
 function createOverlayWindow() {
@@ -3543,10 +3576,12 @@ function shutdownChildren() {
 let autoUpdater = null;
 let autoUpdaterInitialized = false;
 let updateState = {
-  status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error | unsupported
+  status: 'idle', // idle | checking | available | manual-download | not-available | downloading | downloaded | error | unsupported
   availableVersion: null,
   progress: 0,
   message: '',
+  releaseUrl: null,
+  downloadUrl: null,
 };
 
 function getUpdateSnapshot() {
@@ -3601,6 +3636,71 @@ function isStableGithubRelease(release) {
   return release && !release.draft && !release.prerelease && getGithubReleaseVersion(release);
 }
 
+function getGithubReleasesUrl() {
+  return `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/releases/latest`;
+}
+
+function getGithubReleaseUrl(release) {
+  return (release && release.html_url) || getGithubReleasesUrl();
+}
+
+function getGithubAssetScore(assetName) {
+  const name = String(assetName || '').toLowerCase();
+  if (!name || /\.(yml|yaml|blockmap|sha256|sig)$/i.test(name)) {
+    return -1;
+  }
+
+  if (process.platform === 'win32') {
+    if (!name.endsWith('.exe') && !name.endsWith('.msi')) {
+      return -1;
+    }
+
+    return (
+      (name.includes('openflow') ? 30 : 0) +
+      (name.includes('setup') || name.includes('installer') ? 20 : 0) +
+      (name.endsWith('.exe') ? 10 : 0)
+    );
+  }
+
+  if (process.platform === 'darwin') {
+    if (!name.endsWith('.dmg') && !name.endsWith('.zip')) {
+      return -1;
+    }
+
+    const archScore =
+      (process.arch === 'arm64' && name.includes('arm64')) ||
+      (process.arch === 'x64' && (name.includes('x64') || name.includes('x86_64')))
+        ? 30
+        : name.includes('universal')
+          ? 20
+          : 0;
+    return archScore + (name.endsWith('.dmg') ? 10 : 5);
+  }
+
+  if (process.platform === 'linux') {
+    if (!/\.(appimage|deb|rpm|tar\.gz)$/i.test(name)) {
+      return -1;
+    }
+
+    return name.endsWith('.appimage') ? 20 : 10;
+  }
+
+  return -1;
+}
+
+function getGithubReleaseDownloadUrl(release) {
+  const assets = Array.isArray(release && release.assets) ? release.assets : [];
+  const bestAsset = assets
+    .map((asset) => ({
+      asset,
+      score: getGithubAssetScore(asset && asset.name),
+    }))
+    .filter((entry) => entry.score >= 0 && entry.asset && entry.asset.browser_download_url)
+    .sort((left, right) => right.score - left.score)[0];
+
+  return bestAsset ? bestAsset.asset.browser_download_url : null;
+}
+
 async function fetchGithubReleases(pathname) {
   if (typeof fetch !== 'function') {
     throw new Error('Fetch is not available in this runtime.');
@@ -3627,16 +3727,22 @@ async function fetchGithubReleases(pathname) {
   return response.json();
 }
 
-async function getLatestGithubReleaseVersion() {
+async function getLatestGithubRelease() {
   const releases = await fetchGithubReleases('/releases?per_page=30');
   if (Array.isArray(releases)) {
     return releases
       .filter(isStableGithubRelease)
-      .map(getGithubReleaseVersion)
-      .sort((left, right) => compareReleaseVersions(right, left))[0] || null;
+      .sort((left, right) =>
+        compareReleaseVersions(getGithubReleaseVersion(right), getGithubReleaseVersion(left)),
+      )[0] || null;
   }
 
   return null;
+}
+
+async function getLatestGithubReleaseVersion() {
+  const release = await getLatestGithubRelease();
+  return release ? getGithubReleaseVersion(release) : null;
 }
 
 async function handleMissingUpdateMetadata(error) {
@@ -3644,21 +3750,56 @@ async function handleMissingUpdateMetadata(error) {
     return false;
   }
 
-  const latestVersion = await getLatestGithubReleaseVersion();
+  const latestRelease = await getLatestGithubRelease();
+  const latestVersion = getGithubReleaseVersion(latestRelease);
   if (!latestVersion || compareReleaseVersions(latestVersion, app.getVersion()) <= 0) {
-    setUpdateState({ status: 'not-available', availableVersion: null, progress: 0, message: '' });
+    setUpdateState({
+      status: 'not-available',
+      availableVersion: null,
+      progress: 0,
+      message: '',
+      releaseUrl: null,
+      downloadUrl: null,
+    });
     return true;
   }
 
   setUpdateState({
-    status: 'error',
+    status: 'manual-download',
     availableVersion: latestVersion,
     progress: 0,
-    message:
-      `Version ${latestVersion} exists on GitHub, but the auto-update metadata is missing. ` +
-      'Publish the installer with latest.yml to enable in-app updates.',
+    message: '',
+    releaseUrl: getGithubReleaseUrl(latestRelease),
+    downloadUrl: getGithubReleaseDownloadUrl(latestRelease),
   });
   return true;
+}
+
+async function openUpdateDownloadTarget() {
+  let url = updateState.downloadUrl || updateState.releaseUrl;
+
+  if (!url) {
+    const latestRelease = await getLatestGithubRelease();
+    const latestVersion = getGithubReleaseVersion(latestRelease);
+    if (latestVersion && compareReleaseVersions(latestVersion, app.getVersion()) > 0) {
+      url = getGithubReleaseDownloadUrl(latestRelease) || getGithubReleaseUrl(latestRelease);
+      setUpdateState({
+        status: 'manual-download',
+        availableVersion: latestVersion,
+        progress: 0,
+        message: '',
+        releaseUrl: getGithubReleaseUrl(latestRelease),
+        downloadUrl: getGithubReleaseDownloadUrl(latestRelease),
+      });
+    }
+  }
+
+  if (!url) {
+    url = getGithubReleasesUrl();
+  }
+
+  await shell.openExternal(url);
+  return getUpdateSnapshot();
 }
 
 function loadAutoUpdater() {
@@ -3681,10 +3822,18 @@ function loadAutoUpdater() {
         availableVersion: (info && info.version) || null,
         progress: 0,
         message: '',
+        releaseUrl: null,
+        downloadUrl: null,
       }),
     );
     autoUpdater.on('update-not-available', () =>
-      setUpdateState({ status: 'not-available', availableVersion: null, message: '' }),
+      setUpdateState({
+        status: 'not-available',
+        availableVersion: null,
+        message: '',
+        releaseUrl: null,
+        downloadUrl: null,
+      }),
     );
     autoUpdater.on('download-progress', (progress) =>
       setUpdateState({
@@ -3753,11 +3902,18 @@ ipcMain.handle('download-update', async () => {
     setUpdateState({ status: 'downloading', progress: 0, message: '' });
     await updater.downloadUpdate();
   } catch (error) {
-    setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+    try {
+      if (!(await handleMissingUpdateMetadata(error))) {
+        setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+      }
+    } catch (_fallbackError) {
+      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+    }
   }
 
   return getUpdateSnapshot();
 });
+ipcMain.handle('open-update-download', async () => openUpdateDownloadTarget());
 ipcMain.handle('install-update', async () => {
   const updater = loadAutoUpdater();
   if (!updater) {
@@ -3885,9 +4041,11 @@ app.whenReady().then(() => {
   bootHotkeyListener();
   scheduleStartupUpdateCheck();
 
-  screen.on('display-added', positionOverlayWindow);
-  screen.on('display-removed', positionOverlayWindow);
-  screen.on('display-metrics-changed', positionOverlayWindow);
+  screen.on('display-added', resyncOverlayWindowPosition);
+  screen.on('display-removed', resyncOverlayWindowPosition);
+  screen.on('display-metrics-changed', resyncOverlayWindowPosition);
+  powerMonitor.on('resume', recoverOverlayWindowAfterResume);
+  powerMonitor.on('unlock-screen', recoverOverlayWindowAfterResume);
 
   app.on('activate', () => {
     showMainWindow();
