@@ -1354,7 +1354,7 @@ function normalizePersistedState(payload) {
         defaults.overlayDynamicSize,
       ),
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
-      overlayPosition: normalizeOverlayPosition(preferencesSource.overlayPosition),
+      overlayPosition: defaults.overlayPosition,
     },
     modelStats: normalizeStats(source.modelStats),
     history: applyHistoryRetention(normalizeHistory(source.history), keepAllTranscriptions),
@@ -1405,7 +1405,7 @@ function savePersistentState() {
       overlayScale: state.overlayScale,
       overlayDynamicSize: state.overlayDynamicSize,
       dictionaryEntries: state.dictionaryEntries,
-      overlayPosition: normalizeOverlayPosition(state.overlayPosition),
+      overlayPosition: defaults.overlayPosition,
     },
     modelStats: state.modelStats,
     history: applyHistoryRetention(state.history, state.keepAllTranscriptions),
@@ -1510,7 +1510,6 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
       x: bounds.x,
       y: bounds.y,
     };
-    savePersistentState();
   }
 
   if (persist) {
@@ -1520,7 +1519,6 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
         y: bounds.y,
       },
     });
-    savePersistentState();
   }
 
   return bounds;
@@ -1578,7 +1576,7 @@ function resyncOverlayWindowPosition() {
     return;
   }
 
-  positionOverlayWindow(state.overlayPosition, true);
+  positionOverlayWindow(state.overlayPosition);
   syncOverlayWindow();
 }
 
@@ -4143,7 +4141,7 @@ app.whenReady().then(() => {
     overlayScale: persistedState.preferences.overlayScale,
     overlayDynamicSize: persistedState.preferences.overlayDynamicSize,
     dictionaryEntries: persistedState.preferences.dictionaryEntries,
-    overlayPosition: persistedState.preferences.overlayPosition,
+    overlayPosition: defaults.overlayPosition,
   });
   shouldStartHiddenOnLaunch =
     shouldStartHiddenOnLaunch || Boolean(app.getLoginItemSettings().wasOpenedAsHidden);
