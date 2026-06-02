@@ -176,13 +176,12 @@ function handlePointerMove(event) {
 // Apply the user's floating-pill customization. Opacity only fades the dark pill
 // backdrop (drawn on the ::before layer); the wave/loader/idle effects stay fully
 // opaque. Scale shrinks the whole pill. With dynamic size, the pill stays at full size
-// while recording AND while the transcription/paste animation runs, shrinking back to
-// half only once the text has been pasted (idle).
+// while the app is busy or showing ready feedback, shrinking back to half once it is idle.
 function applyOverlayStyle(mode, phase) {
   const root = document.documentElement;
   root.style.setProperty('--overlay-bg-opacity', overlayBgOpacity.toFixed(3));
 
-  const expanded = mode === 'recording' || phase === 'transcribing';
+  const expanded = mode === 'recording' || mode === 'loading' || phase === 'transcribing' || activeFeedback === 'ready';
   const effectiveScale = overlayDynamicSize && !expanded ? overlayScale * 0.5 : overlayScale;
   root.style.setProperty('--overlay-scale', effectiveScale.toFixed(3));
 }
