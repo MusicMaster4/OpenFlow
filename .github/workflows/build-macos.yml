@@ -135,7 +135,16 @@ jobs:
           fi
           gh release view "$tag" >/dev/null
 
-          mapfile -d '' assets < <(find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' -o -name 'SHA256SUMS-macos-*.txt' \) -print0 | sort -z)
+          assets=()
+          while IFS= read -r -d '' asset; do
+            assets+=("$asset")
+          done < <(find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' -o -name 'SHA256SUMS-macos-*.txt' \) -print0 | sort -z)
+
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No macOS release artifacts found."
+            exit 1
+          fi
+
           gh release upload "$tag" "${assets[@]}" --clobber
 
       - name: Upload artifacts

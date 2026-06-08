@@ -297,7 +297,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -d '' assets < <(find release-artifacts -type f -print0 | sort -z)
+          assets=()
+          while IFS= read -r -d '' asset; do
+            assets+=("$asset")
+          done < <(find release-artifacts -type f -print0 | sort -z)
+
           if [[ "${#assets[@]}" -eq 0 ]]; then
             echo "No release artifacts found."
             exit 1
