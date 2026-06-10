@@ -20,6 +20,9 @@ let currentOverlayState = {
   phase: 'idle',
   captureMode: null,
   audioLevel: 0,
+  overlayOpacity: 100,
+  overlayScale: 100,
+  overlayDynamicSize: false,
 };
 let soundEffectsEnabled = true;
 let overlayBgOpacity = 1;
@@ -187,15 +190,22 @@ function applyOverlayStyle(mode, phase) {
 }
 
 function renderOverlay(state) {
+  const nextOverlayOpacity = state.overlayOpacity ?? overlayBgOpacity * 100;
+  const nextOverlayScale = state.overlayScale ?? overlayScale * 100;
+  const nextOverlayDynamicSize = state.overlayDynamicSize ?? overlayDynamicSize;
+
   currentOverlayState = {
     phase: state.phase,
     captureMode: state.captureMode ?? null,
     audioLevel: state.audioLevel ?? targetAudioLevel,
+    overlayOpacity: nextOverlayOpacity,
+    overlayScale: nextOverlayScale,
+    overlayDynamicSize: nextOverlayDynamicSize,
   };
 
-  overlayBgOpacity = Math.max(0, Math.min(1, Number(state.overlayOpacity ?? 100) / 100));
-  overlayScale = Math.max(0.1, Math.min(1, Number(state.overlayScale ?? 100) / 100));
-  overlayDynamicSize = Boolean(state.overlayDynamicSize);
+  overlayBgOpacity = Math.max(0, Math.min(1, Number(nextOverlayOpacity) / 100));
+  overlayScale = Math.max(0.1, Math.min(1, Number(nextOverlayScale) / 100));
+  overlayDynamicSize = Boolean(nextOverlayDynamicSize);
 
   const mode = getOverlayMode(state);
   const handsFree = isHandsFreeActive(state);

@@ -609,7 +609,11 @@ if ($RecoverAudio) {
     exit 0
 }
 
-Restore-StaleSnapshotState | Out-Null
+try {
+    Restore-StaleSnapshotState | Out-Null
+} catch {
+    Clear-SnapshotState
+}
 Emit-Event -Type 'ready'
 
 try {
@@ -626,32 +630,51 @@ try {
         try {
             $command = $line | ConvertFrom-Json
         } catch {
-      Emit-Event -Type 'error' -Payload @{ message = 'Audio controller received an invalid JSON command.' }
+            Emit-Event -Type 'error' -Payload @{ message = 'Audio controller received an invalid JSON command.' }
             continue
         }
 
         switch ($command.type) {
             'configure' {
-                Configure-Controller $command.payload
+                try {
+                    Configure-Controller $command.payload
+                } catch {
+                    Emit-Event -Type 'warning' -Payload @{ message = "Configure failed: $($_.Exception.Message)" }
+                }
             }
             'capture-begin' {
-                Start-CaptureDuck
+                try {
+                    Start-CaptureDuck
+                } catch {
+                    Emit-Event -Type 'error' -Payload @{ message = "Duck failed: $($_.Exception.Message)" }
+                }
             }
             'capture-end' {
-                Stop-CaptureDuck
+                try {
+                    Stop-CaptureDuck
+                } catch {
+                    Emit-Event -Type 'warning' -Payload @{ message = "Restore failed: $($_.Exception.Message)" }
+                }
             }
             'shutdown' {
-                Stop-CaptureDuck
+                try {
+                    Stop-CaptureDuck
+                } catch {
+                    # Best effort on shutdown.
+                }
                 $state.Running = $false
             }
             default {
-      Emit-Event -Type 'warning' -Payload @{ message = "Unknown command: $($command.type)" }
+                Emit-Event -Type 'warning' -Payload @{ message = "Unknown command: $($command.type)" }
             }
         }
     }
 } catch {
     Emit-Event -Type 'error' -Payload @{ message = $_.Exception.Message }
-    throw
 } finally {
-    Stop-CaptureDuck
+    try {
+        Stop-CaptureDuck
+    } catch {
+        # Best effort cleanup.
+    }
 }

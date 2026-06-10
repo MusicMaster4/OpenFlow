@@ -31,7 +31,7 @@ const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
 const DEFAULT_DUCK_AUDIO = true;
 const DEFAULT_OVERLAY_OPACITY = 100;
 const DEFAULT_OVERLAY_SCALE = 100;
-const DEFAULT_OVERLAY_DYNAMIC_SIZE = false;
+const DEFAULT_OVERLAY_DYNAMIC_SIZE = true;
 const LOCAL_HISTORY_LIMIT = 100;
 const PERSISTENCE_VERSION = 5;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
@@ -2994,6 +2994,10 @@ function bootAudioController() {
     return;
   }
 
+  if (audioProcess && !audioProcess.killed) {
+    return;
+  }
+
   lastAudioControllerConfigSignature = '';
   const powershellScript = getSystemAudioControllerScriptPath();
   const localToken = ++audioToken;
@@ -3044,13 +3048,22 @@ function bootAudioController() {
     console.warn('[audio-mute] Nao foi possivel iniciar o controlador de audio:', error.message);
   });
 
-  localProcess.on('close', () => {
+  localProcess.on('close', (code) => {
     if (localToken !== audioToken) {
       return;
     }
 
     audioProcess = null;
     audioReader = null;
+
+    if (!isQuitting) {
+      setTimeout(() => {
+        if (isQuitting || audioToken !== localToken) {
+          return;
+        }
+        bootAudioController();
+      }, 2000);
+    }
   });
 }
 
