@@ -99,9 +99,22 @@ function writeAppUpdateConfig() {
   );
 }
 
-// Set OPENFLOW_PUBLISH=always (with a valid GH_TOKEN) to upload the installer and
-// latest.yml metadata to the GitHub release that powers the in-app auto-update.
-const publishMode = process.env.OPENFLOW_PUBLISH === 'always' ? 'always' : 'never';
+function hasPaddedPatchVersion(version) {
+  const match = String(version || '').match(/^[0-9]+\.[0-9]+\.([0-9]{3})$/);
+  return Boolean(match && match[1].startsWith('0'));
+}
+
+const requestedPublish = process.env.OPENFLOW_PUBLISH === 'always';
+if (requestedPublish && hasPaddedPatchVersion(packageJson.version)) {
+  console.error(
+    `Refusing Electron Builder auto-publish for ${packageJson.version}. ` +
+      'It can normalize padded versions and create a duplicate GitHub release.',
+  );
+  console.error('Use the release-main workflow or upload the generated Windows artifacts manually.');
+  process.exit(1);
+}
+
+const publishMode = requestedPublish ? 'always' : 'never';
 
 async function main() {
   fs.rmSync(distDir, { recursive: true, force: true });

@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('flowLocal', {
   getState: () => ipcRenderer.invoke('get-state'),
   updateSettings: (patch) => ipcRenderer.invoke('update-settings', patch),
+  saveOpenRouterApiKey: (apiKey) => ipcRenderer.invoke('save-openrouter-api-key', apiKey),
+  clearOpenRouterApiKey: () => ipcRenderer.invoke('clear-openrouter-api-key'),
+  refreshOpenRouterModels: () => ipcRenderer.invoke('refresh-openrouter-models'),
+  retryCloudTranscription: (retryId) => ipcRenderer.invoke('retry-cloud-transcription', retryId),
   previewOverlayStyle: (patch) => ipcRenderer.send('preview-overlay-style', patch),
   resetModelStats: () => ipcRenderer.invoke('reset-model-stats'),
   copyText: (text) => ipcRenderer.invoke('copy-text', text),

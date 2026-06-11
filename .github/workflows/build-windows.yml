@@ -5,12 +5,9 @@ on:
   push:
     branches-ignore:
       - main
-    tags:
-      - "v*"
 
-# Allow the workflow's GITHUB_TOKEN to create/upload GitHub releases on tag builds.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -51,10 +48,7 @@ jobs:
 
       - name: Build Windows package
         env:
-          # On a v* tag, publish the installer + latest.yml to the GitHub release that
-          # powers the in-app auto-update. Branch pushes only produce CI artifacts.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENFLOW_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          OPENFLOW_PUBLISH: never
         run: npm run dist:win
 
       - name: Verify packaged binaries

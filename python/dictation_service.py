@@ -1,3 +1,4 @@
+import base64
 import json
 import math
 import os
@@ -7,6 +8,7 @@ import sys
 import threading
 import time
 import io
+import wave
 from collections import deque
 from pathlib import Path
 from typing import Optional
@@ -157,6 +159,7 @@ class DictationService:
         self._init_spectrum_bands()
         self.vad = webrtcvad.Vad(2)
         self.model_name = os.getenv("WHISPER_MODEL", "small")
+        self.cloud_mode = os.getenv("FLOW_TRANSCRIPTION_ENGINE", "local").lower() == "cloud"
         self.model_dir = os.getenv("WHISPER_MODEL_DIR")
         self.requested_device = self._resolve_requested_device()
         self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE")
@@ -187,6 +190,21 @@ class DictationService:
 
     def boot(self) -> None:
         self.emit("state", {"phase": "booting", "listening": False})
+        if self.cloud_mode:
+            self.active_device = "cloud"
+            self.device_note = "Cloud transcription is enabled. Local Whisper models are not loaded."
+            self.processing_thread.start()
+            self.transcriber_thread.start()
+            self.emit(
+                "ready",
+                {
+                    "model": "cloud",
+                    "device": self.active_device,
+                    "note": self.device_note,
+                },
+            )
+            return
+
         preferred_device = self._resolve_device()
         preferred_compute_type = self._resolve_compute_type(preferred_device)
 
@@ -590,6 +608,18 @@ class DictationService:
         self.segment_queue.put((session_id, merged_audio))
         return True
 
+    def _encode_wav_base64(self, segment: np.ndarray) -> str:
+        clipped = np.clip(segment, -1.0, 1.0)
+        pcm = (clipped * 32767.0).astype(np.int16)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(pcm.tobytes())
+
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
     def _transcribe_loop(self) -> None:
         while not self.stop_event.is_set():
             queued_segment = self.segment_queue.get()
@@ -606,6 +636,19 @@ class DictationService:
             try:
                 audio_duration_ms = round((len(segment) / self.sample_rate) * 1000, 1)
                 started_at = time.perf_counter()
+                if self.cloud_mode:
+                    self.emit(
+                        "audio",
+                        {
+                            "format": "wav",
+                            "data": self._encode_wav_base64(segment),
+                            "language": selected_language,
+                            "audio_duration_ms": audio_duration_ms,
+                            "session_id": session_id,
+                        },
+                    )
+                    continue
+
                 selected_language, language_confidence = self._detect_allowed_language(segment)
 
                 try:

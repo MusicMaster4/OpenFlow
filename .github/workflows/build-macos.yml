@@ -5,12 +5,9 @@ on:
   push:
     branches-ignore:
       - main
-    tags:
-      - "v*"
 
-# Allow the workflow's GITHUB_TOKEN to create/upload GitHub releases on tag builds.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -117,35 +114,6 @@ jobs:
           find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' \) -print0 \
             | sort -z \
             | xargs -0 shasum -a 256 > "dist/SHA256SUMS-macos-${{ matrix.electron_arch }}.txt"
-
-      - name: Publish tag release artifacts
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
-
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --draft --title "OpenFlow $version" \
-              --notes "Draft release generated from tag $tag." || true
-          fi
-          gh release view "$tag" >/dev/null
-
-          assets=()
-          while IFS= read -r -d '' asset; do
-            assets+=("$asset")
-          done < <(find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.yml' -o -name '*.blockmap' -o -name 'SHA256SUMS-macos-*.txt' \) -print0 | sort -z)
-
-          if [[ "${#assets[@]}" -eq 0 ]]; then
-            echo "No macOS release artifacts found."
-            exit 1
-          fi
-
-          gh release upload "$tag" "${assets[@]}" --clobber
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

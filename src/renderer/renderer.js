@@ -81,6 +81,33 @@ const TRANSLATIONS = {
     noDetectionLanguageResults: 'No detection languages match your search.',
     keepOneDetectionLanguage: 'Keep at least one detection language selected.',
     transcriptionModels: 'Transcription models',
+    localModels: 'Local models',
+    cloudModels: 'Cloud models',
+    processInCloud: 'Process in the cloud',
+    processInCloudCopy: 'Use OpenRouter speech-to-text models.',
+    openRouterApiKey: 'OpenRouter API key',
+    openRouterApiKeyPlaceholder: 'sk-or-...',
+    saveApiKey: 'Save key',
+    changeApiKey: 'Change key',
+    clearApiKey: 'Remove',
+    apiKeyConfigured: 'API key saved.',
+    apiKeyMissing: 'Add an OpenRouter API key.',
+    cloudModel: 'Cloud model',
+    cloudModelCopy: 'OpenRouter models and prices.',
+    refreshModels: 'Refresh',
+    loadingCloudModels: 'Loading cloud models...',
+    noCloudModels: 'No speech-to-text models found.',
+    cloudModelsError: 'Could not load cloud models: {message}',
+    savedCloudRecordings: 'Saved failed recordings',
+    savedCloudRecordingsCopy: 'Retry without recording again.',
+    noSavedCloudRecordings: 'No failed recordings saved.',
+    retry: 'Retry',
+    cloudPrivacyTitle: 'Cloud privacy notice',
+    cloudPrivacyCopy:
+      'When cloud transcription is enabled, your audio is sent to OpenRouter and the selected provider. OpenFlow cannot guarantee that third parties delete or retain data in a specific way.',
+    cancelCloud: 'Keep local',
+    acceptCloud: 'Enable cloud',
+    cloudRequiresKey: 'Save your OpenRouter API key before enabling cloud transcription.',
     resetAverage: 'Reset average',
     systemDiagnostics: 'System diagnostics',
     activeModel: 'Active model',
@@ -216,6 +243,33 @@ const TRANSLATIONS = {
     noDetectionLanguageResults: 'Nenhum idioma de detecção corresponde à busca.',
     keepOneDetectionLanguage: 'Mantenha pelo menos um idioma de detecção ativo.',
     transcriptionModels: 'Modelos de transcrição',
+    localModels: 'Modelos locais',
+    cloudModels: 'Modelos da nuvem',
+    processInCloud: 'Processar na nuvem',
+    processInCloudCopy: 'Use modelos speech-to-text da OpenRouter.',
+    openRouterApiKey: 'Chave da OpenRouter',
+    openRouterApiKeyPlaceholder: 'sk-or-...',
+    saveApiKey: 'Salvar chave',
+    changeApiKey: 'Trocar chave',
+    clearApiKey: 'Remover',
+    apiKeyConfigured: 'Chave salva.',
+    apiKeyMissing: 'Adicione uma chave da OpenRouter.',
+    cloudModel: 'Modelo na nuvem',
+    cloudModelCopy: 'Modelos e precos da OpenRouter.',
+    refreshModels: 'Atualizar',
+    loadingCloudModels: 'Carregando modelos da nuvem...',
+    noCloudModels: 'Nenhum modelo speech-to-text encontrado.',
+    cloudModelsError: 'Nao foi possivel carregar modelos da nuvem: {message}',
+    savedCloudRecordings: 'Gravacoes com falha salvas',
+    savedCloudRecordingsCopy: 'Tente reenviar sem gravar de novo.',
+    noSavedCloudRecordings: 'Nenhuma gravacao com falha salva.',
+    retry: 'Tentar de novo',
+    cloudPrivacyTitle: 'Aviso de privacidade da nuvem',
+    cloudPrivacyCopy:
+      'Ao ativar a transcricao na nuvem, seu audio e enviado para a OpenRouter e para o provedor selecionado. O OpenFlow nao consegue garantir que terceiros apaguem ou retenham dados de uma forma especifica.',
+    cancelCloud: 'Manter local',
+    acceptCloud: 'Ativar nuvem',
+    cloudRequiresKey: 'Salve sua chave da OpenRouter antes de ativar a transcricao na nuvem.',
     resetAverage: 'Resetar média',
     systemDiagnostics: 'Diagnóstico do sistema',
     activeModel: 'Modelo ativo',
@@ -549,6 +603,23 @@ const els = {
   detectionLanguageMore: document.getElementById('detection-language-more'),
   detectionLanguageSearch: document.getElementById('detection-language-search'),
   detectionLanguageList: document.getElementById('detection-language-list'),
+  cloudTranscriptionEnabled: document.getElementById('cloud-transcription-enabled'),
+  cloudSettings: document.getElementById('cloud-settings'),
+  openRouterKeyForm: document.getElementById('openrouter-key-form'),
+  openRouterApiKey: document.getElementById('openrouter-api-key'),
+  openRouterKeySaved: document.getElementById('openrouter-key-saved'),
+  openRouterKeyStatus: document.getElementById('openrouter-key-status'),
+  changeOpenRouterKey: document.getElementById('change-openrouter-key'),
+  cancelOpenRouterKeyChange: document.getElementById('cancel-openrouter-key-change'),
+  clearOpenRouterKey: document.getElementById('clear-openrouter-key'),
+  refreshOpenRouterModels: document.getElementById('refresh-openrouter-models'),
+  cloudModelList: document.getElementById('cloud-model-list'),
+  cloudRetrySection: document.getElementById('cloud-retry-section'),
+  cloudRetryList: document.getElementById('cloud-retry-list'),
+  cloudPrivacyDialog: document.getElementById('cloud-privacy-dialog'),
+  cloudPrivacyBackdrop: document.getElementById('cloud-privacy-backdrop'),
+  cancelCloudPrivacy: document.getElementById('cancel-cloud-privacy'),
+  acceptCloudPrivacy: document.getElementById('accept-cloud-privacy'),
   modelList: document.getElementById('model-list'),
   resetStats: document.getElementById('reset-stats'),
   activeModelLabel: document.getElementById('active-model-label'),
@@ -629,6 +700,8 @@ let toastHideTimer = null;
 let dictionaryFilter = '';
 let lastUpdate = { status: 'idle', version: null, availableVersion: null, progress: 0, message: '' };
 let installAfterDownload = false;
+let cloudSettingsSetupOpen = false;
+let cloudKeyEditOpen = false;
 const renderCache = {
   translations: '',
   detectionLanguages: '',
@@ -636,6 +709,8 @@ const renderCache = {
   history: '',
   dictionary: '',
   models: '',
+  cloudModels: '',
+  cloudRetries: '',
   usage: '',
 };
 
@@ -820,7 +895,13 @@ function countLabel(count, singular, plural) {
 }
 
 function modelLabel(modelId) {
-  return (MODEL_LABELS[modelId] && (MODEL_LABELS[modelId][locale()] || MODEL_LABELS[modelId].en)) || modelId || '--';
+  const cloudModel = (lastState?.openRouterModels || []).find((model) => model.id === modelId);
+  return (
+    (MODEL_LABELS[modelId] && (MODEL_LABELS[modelId][locale()] || MODEL_LABELS[modelId].en)) ||
+    cloudModel?.name ||
+    modelId ||
+    '--'
+  );
 }
 
 function modelDescription(modelId) {
@@ -830,6 +911,17 @@ function modelDescription(modelId) {
 function formatMs(ms) {
   const value = Number(ms) || 0;
   return value > 0 ? `${Math.round(value)} ms` : '--';
+}
+
+function formatCostUsd(value) {
+  const cost = Number(value) || 0;
+  if (cost <= 0) return '';
+  return new Intl.NumberFormat(locale(), {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: cost < 0.01 ? 4 : 2,
+    maximumFractionDigits: cost < 0.01 ? 6 : 2,
+  }).format(cost);
 }
 
 function formatShortcut(shortcut, platform = 'win32') {
@@ -1072,7 +1164,7 @@ function renderHistory(history, total) {
     list
       .map(
         (entry) =>
-          `${entry.timestamp || ''}:${entry.model || ''}:${entry.language || ''}:${entry.transcriptionMs || 0}:${entry.wordCount || 0}:${entry.text || ''}`,
+          `${entry.timestamp || ''}:${entry.model || ''}:${entry.engine || ''}:${entry.language || ''}:${entry.transcriptionMs || 0}:${entry.costUsd || 0}:${entry.wordCount || 0}:${entry.text || ''}`,
       )
       .join('|'),
   ].join('|');
@@ -1111,6 +1203,7 @@ function renderHistory(history, total) {
   els.historyList.innerHTML = renderedHistory
     .map((entry, index) => {
       const timestamp = new Date(entry.timestamp);
+      const cost = formatCostUsd(entry.costUsd);
       return `
         <article class="history-item">
           <div class="history-item__time">
@@ -1123,6 +1216,7 @@ function renderHistory(history, total) {
               <span>${esc(modelLabel(entry.model))}</span>
               <span>${esc(capitalizeLanguageLabel(langName(entry.language || 'en')))}</span>
               <span>${esc(formatMs(entry.transcriptionMs))}</span>
+              ${cost ? `<span>${esc(cost)}</span>` : ''}
               <span>${intFmt(entry.wordCount || 0)} ${wordsLabel}</span>
             </div>
           </div>
@@ -1253,6 +1347,136 @@ function renderModels(state) {
     button.addEventListener('click', async () => {
       if (isBusy) return;
       renderState(await window.flowLocal.updateSettings({ model: button.getAttribute('data-model') }));
+    });
+  }
+}
+
+function renderCloudModels(state) {
+  const models = Array.isArray(state.openRouterModels) ? state.openRouterModels : [];
+  const signature = [
+    locale(),
+    state.cloudTranscriptionEnabled ? 'cloud-on' : 'cloud-off',
+    cloudSettingsSetupOpen ? 'setup-open' : 'setup-closed',
+    cloudKeyEditOpen ? 'key-edit' : 'key-readonly',
+    state.cloudTranscriptionModel || '',
+    state.openRouterApiKeyConfigured ? 'key' : 'no-key',
+    state.openRouterModelsStatus || '',
+    state.openRouterModelsError || '',
+    models.map((model) => `${model.id}:${model.name}:${model.pricingLabel}`).join('|'),
+  ].join('|');
+  if (renderCache.cloudModels === signature) {
+    return;
+  }
+  renderCache.cloudModels = signature;
+
+  const showCloudSettings = Boolean(state.cloudTranscriptionEnabled || cloudSettingsSetupOpen);
+  els.cloudTranscriptionEnabled.checked = Boolean(state.cloudTranscriptionEnabled);
+  els.cloudSettings.classList.toggle('hidden', !showCloudSettings);
+  if (!showCloudSettings) {
+    return;
+  }
+
+  els.openRouterKeyStatus.textContent = state.openRouterApiKeyConfigured
+    ? t('apiKeyConfigured')
+    : t('apiKeyMissing');
+  const showKeyForm = !state.openRouterApiKeyConfigured || cloudKeyEditOpen;
+  els.openRouterKeyForm.classList.toggle('hidden', !showKeyForm);
+  els.openRouterKeySaved.classList.toggle('hidden', showKeyForm);
+  els.cancelOpenRouterKeyChange.classList.toggle(
+    'hidden',
+    !cloudKeyEditOpen || !state.openRouterApiKeyConfigured,
+  );
+  els.clearOpenRouterKey.disabled = !state.openRouterApiKeyConfigured;
+  els.refreshOpenRouterModels.disabled =
+    !state.openRouterApiKeyConfigured || state.openRouterModelsStatus === 'loading';
+
+  if (!state.openRouterApiKeyConfigured) {
+    els.cloudModelList.innerHTML = `<div class="history-empty">${esc(t('apiKeyMissing'))}</div>`;
+    return;
+  }
+
+  if (state.openRouterModelsStatus === 'loading') {
+    els.cloudModelList.innerHTML = `<div class="history-empty">${esc(t('loadingCloudModels'))}</div>`;
+    return;
+  }
+
+  if (state.openRouterModelsStatus === 'error') {
+    els.cloudModelList.innerHTML = `<div class="history-empty">${esc(template('cloudModelsError', { message: state.openRouterModelsError || '--' }))}</div>`;
+    return;
+  }
+
+  if (models.length === 0) {
+    els.cloudModelList.innerHTML = `<div class="history-empty">${esc(t('noCloudModels'))}</div>`;
+    return;
+  }
+
+  const isBusy = state.switchingModel || state.phase === 'booting' || state.openRouterModelsStatus === 'loading';
+  els.cloudModelList.innerHTML = models
+    .map((model) => `
+      <button class="model-card${model.id === state.cloudTranscriptionModel ? ' model-card--active' : ''}${isBusy ? ' model-card--disabled' : ''}" data-cloud-model="${esc(model.id)}" type="button" ${isBusy ? 'disabled' : ''}>
+        <div class="model-card__top">
+          <strong>${esc(model.name || model.id)}</strong>
+          <span>${esc(model.id)}</span>
+        </div>
+        <p>${esc(model.description || model.id)}</p>
+        <div class="model-card__stats">
+          <span>${esc(model.pricingLabel || '--')}</span>
+        </div>
+      </button>
+    `)
+    .join('');
+
+  for (const button of els.cloudModelList.querySelectorAll('[data-cloud-model]')) {
+    button.addEventListener('click', async () => {
+      if (isBusy) return;
+      renderState(await window.flowLocal.updateSettings({
+        cloudTranscriptionModel: button.getAttribute('data-cloud-model'),
+      }));
+    });
+  }
+}
+
+function renderCloudRetries(state) {
+  const retries = Array.isArray(state.cloudRetries) ? state.cloudRetries : [];
+  const signature = [
+    locale(),
+    state.phase,
+    retries
+      .map((retry) => `${retry.id}:${retry.model}:${retry.language}:${retry.audioDurationMs}:${retry.createdAt}:${retry.error}`)
+      .join('|'),
+  ].join('|');
+  if (renderCache.cloudRetries === signature) {
+    return;
+  }
+  renderCache.cloudRetries = signature;
+
+  els.cloudRetrySection.classList.toggle('hidden', retries.length === 0);
+  if (retries.length === 0) {
+    els.cloudRetryList.innerHTML = `<div class="history-empty">${esc(t('noSavedCloudRecordings'))}</div>`;
+    return;
+  }
+
+  const busy = state.phase === 'transcribing';
+  els.cloudRetryList.innerHTML = retries
+    .map((retry) => {
+      const timestamp = new Date(retry.createdAt);
+      return `
+        <article class="cloud-retry-item">
+          <div>
+            <strong>${esc(modelLabel(retry.model))}</strong>
+            <p>${esc(timestamp.toLocaleString(locale()))} - ${esc(formatMs(retry.audioDurationMs))}</p>
+            ${retry.error ? `<span>${esc(retry.error)}</span>` : ''}
+          </div>
+          <button class="secondary-button" data-cloud-retry="${esc(retry.id)}" type="button" ${busy ? 'disabled' : ''}>${esc(t('retry'))}</button>
+        </article>
+      `;
+    })
+    .join('');
+
+  for (const button of els.cloudRetryList.querySelectorAll('[data-cloud-retry]')) {
+    button.addEventListener('click', async () => {
+      if (busy) return;
+      renderState(await window.flowLocal.retryCloudTranscription(button.getAttribute('data-cloud-retry')));
     });
   }
 }
@@ -1395,7 +1619,10 @@ function renderState(state) {
 
   els.shortcutLabel.textContent = formatShortcut(state.shortcut, state.platform) || '--';
   els.pasteShortcutLabel.textContent = formatShortcut(state.pasteLastShortcut, state.platform) || '--';
-  els.activeModelLabel.textContent = `${modelLabel(state.model)} (${state.model})`;
+  const activeModelId = state.cloudTranscriptionEnabled
+    ? state.cloudTranscriptionModel
+    : state.model;
+  els.activeModelLabel.textContent = `${modelLabel(activeModelId)} (${activeModelId})`;
   els.deviceLabel.textContent = state.device ? String(state.device).toUpperCase() : '--';
   els.deviceNote.textContent = state.deviceNote || t('noNotes');
   els.showOverlayBar.checked = Boolean(state.showOverlayBar);
@@ -1424,6 +1651,8 @@ function renderState(state) {
   renderHistory(state.history, state.historyTotal);
   renderDictionary(state.dictionaryEntries);
   renderModels(state);
+  renderCloudModels(state);
+  renderCloudRetries(state);
 }
 
 function setSettingsOpen(open) {
@@ -1481,6 +1710,17 @@ function setAdvancedOpen(open) {
     els.advancedBackdrop.classList.add('hidden');
     advancedCloseTimer = null;
   }, SETTINGS_CLOSE_DELAY_MS);
+}
+
+function setCloudPrivacyOpen(open) {
+  const visible = Boolean(open);
+  els.cloudPrivacyDialog.classList.toggle('hidden', !visible);
+  els.cloudPrivacyBackdrop.classList.toggle('hidden', !visible);
+  window.requestAnimationFrame(() => {
+    els.cloudPrivacyDialog.classList.toggle('is-visible', visible);
+    els.cloudPrivacyBackdrop.classList.toggle('is-visible', visible);
+    els.cloudPrivacyDialog.setAttribute('aria-hidden', visible ? 'false' : 'true');
+  });
 }
 
 const SHORTCUT_MODIFIER_TOKENS = ['ctrl', 'alt', 'shift', 'windows', 'command'];
@@ -1752,6 +1992,110 @@ function setupHandlers() {
 
   els.resetStats.addEventListener('click', async () => {
     renderState(await window.flowLocal.resetModelStats());
+  });
+
+  els.openRouterKeyForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const apiKey = (els.openRouterApiKey.value || '').trim();
+    if (!apiKey) {
+      showToast(t('apiKeyMissing'));
+      return;
+    }
+
+    try {
+      cloudKeyEditOpen = false;
+      renderState(await window.flowLocal.saveOpenRouterApiKey(apiKey));
+      els.openRouterApiKey.value = '';
+      if (!lastState?.cloudPrivacyNoticeAccepted) {
+        setCloudPrivacyOpen(true);
+      } else {
+        renderState(await window.flowLocal.updateSettings({ cloudTranscriptionEnabled: true }));
+      }
+    } catch (error) {
+      showToast(error?.message || t('apiKeyMissing'));
+    }
+  });
+
+  els.changeOpenRouterKey.addEventListener('click', () => {
+    cloudKeyEditOpen = true;
+    renderCache.cloudModels = '';
+    if (lastState) renderCloudModels(lastState);
+    els.openRouterApiKey.focus();
+  });
+
+  els.cancelOpenRouterKeyChange.addEventListener('click', () => {
+    cloudKeyEditOpen = false;
+    els.openRouterApiKey.value = '';
+    renderCache.cloudModels = '';
+    if (lastState) renderCloudModels(lastState);
+  });
+
+  els.clearOpenRouterKey.addEventListener('click', async () => {
+    cloudSettingsSetupOpen = false;
+    cloudKeyEditOpen = false;
+    renderCache.cloudModels = '';
+    renderState(await window.flowLocal.clearOpenRouterApiKey());
+  });
+
+  els.refreshOpenRouterModels.addEventListener('click', async () => {
+    renderState(await window.flowLocal.refreshOpenRouterModels());
+  });
+
+  els.cloudTranscriptionEnabled.addEventListener('change', async () => {
+    if (!els.cloudTranscriptionEnabled.checked) {
+      cloudSettingsSetupOpen = false;
+      cloudKeyEditOpen = false;
+      renderCache.cloudModels = '';
+      renderState(await window.flowLocal.updateSettings({ cloudTranscriptionEnabled: false }));
+      return;
+    }
+
+    if (!lastState?.openRouterApiKeyConfigured) {
+      cloudSettingsSetupOpen = true;
+      cloudKeyEditOpen = true;
+      renderCache.cloudModels = '';
+      renderCloudModels(lastState);
+      els.openRouterApiKey.focus();
+      showToast(t('cloudRequiresKey'));
+      return;
+    }
+
+    if (lastState?.cloudPrivacyNoticeAccepted) {
+      cloudSettingsSetupOpen = false;
+      renderState(await window.flowLocal.updateSettings({ cloudTranscriptionEnabled: true }));
+      return;
+    }
+
+    els.cloudTranscriptionEnabled.checked = false;
+    setCloudPrivacyOpen(true);
+  });
+
+  els.cancelCloudPrivacy.addEventListener('click', () => {
+    setCloudPrivacyOpen(false);
+    cloudSettingsSetupOpen = false;
+    cloudKeyEditOpen = false;
+    renderCache.cloudModels = '';
+    els.cloudTranscriptionEnabled.checked = false;
+    if (lastState) renderCloudModels(lastState);
+  });
+
+  els.cloudPrivacyBackdrop.addEventListener('click', () => {
+    setCloudPrivacyOpen(false);
+    cloudSettingsSetupOpen = false;
+    cloudKeyEditOpen = false;
+    renderCache.cloudModels = '';
+    els.cloudTranscriptionEnabled.checked = false;
+    if (lastState) renderCloudModels(lastState);
+  });
+
+  els.acceptCloudPrivacy.addEventListener('click', async () => {
+    setCloudPrivacyOpen(false);
+    cloudSettingsSetupOpen = false;
+    cloudKeyEditOpen = false;
+    renderState(await window.flowLocal.updateSettings({
+      cloudPrivacyNoticeAccepted: true,
+      cloudTranscriptionEnabled: true,
+    }));
   });
 
   els.updateAction.addEventListener('click', async () => {

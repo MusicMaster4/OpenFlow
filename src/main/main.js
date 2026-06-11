@@ -12,6 +12,7 @@ const {
   ipcMain,
   nativeImage,
   powerMonitor,
+  safeStorage,
   screen,
   shell,
 } = require('electron');
@@ -32,8 +33,11 @@ const DEFAULT_DUCK_AUDIO = true;
 const DEFAULT_OVERLAY_OPACITY = 100;
 const DEFAULT_OVERLAY_SCALE = 100;
 const DEFAULT_OVERLAY_DYNAMIC_SIZE = true;
+const DEFAULT_CLOUD_TRANSCRIPTION_ENABLED = false;
+const DEFAULT_CLOUD_PRIVACY_NOTICE_ACCEPTED = false;
+const DEFAULT_CLOUD_TRANSCRIPTION_MODEL = 'openai/whisper-large-v3';
 const LOCAL_HISTORY_LIMIT = 100;
-const PERSISTENCE_VERSION = 5;
+const PERSISTENCE_VERSION = 6;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
 const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
@@ -45,6 +49,11 @@ const APP_NAME = 'OpenFlow';
 const APP_ID = 'com.openflow.app';
 const UPDATE_REPO_OWNER = 'MusicMaster4';
 const UPDATE_REPO_NAME = 'OpenFlow';
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_STT_MODELS_URL = `${OPENROUTER_BASE_URL}/models?output_modalities=transcription`;
+const OPENROUTER_STT_URL = `${OPENROUTER_BASE_URL}/audio/transcriptions`;
+const OPENROUTER_DEFAULT_MODEL = DEFAULT_CLOUD_TRANSCRIPTION_MODEL;
+const CLOUD_RETRY_LIMIT = 20;
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -223,6 +232,13 @@ const MAIN_TRANSLATIONS = {
     pasteShortcutUpdated: 'Paste-last shortcut updated.',
     duckAudioOn: 'Other apps will be muted while you dictate.',
     duckAudioOff: 'Other apps will keep playing while you dictate.',
+    cloudTranscriptionOn: 'Cloud transcription enabled.',
+    cloudTranscriptionOff: 'Local transcription enabled.',
+    cloudModelUpdated: 'Cloud transcription model updated.',
+    openRouterKeySaved: 'OpenRouter API key saved securely.',
+    openRouterKeyCleared: 'OpenRouter API key removed.',
+    cloudRetrySaved: 'Cloud transcription failed. The recording was saved so you can retry.',
+    cloudRetrySucceeded: 'Saved recording transcribed.',
     trayOpenApp: 'Open app',
     trayHideApp: 'Hide window',
     trayQuit: 'Quit',
@@ -255,6 +271,13 @@ const MAIN_TRANSLATIONS = {
     pasteShortcutUpdated: 'Atalho de colar atualizado.',
     duckAudioOn: 'Outros apps serao silenciados enquanto voce dita.',
     duckAudioOff: 'Outros apps continuarao tocando enquanto voce dita.',
+    cloudTranscriptionOn: 'Transcricao na nuvem ativada.',
+    cloudTranscriptionOff: 'Transcricao local ativada.',
+    cloudModelUpdated: 'Modelo de transcricao na nuvem atualizado.',
+    openRouterKeySaved: 'Chave da OpenRouter salva com seguranca.',
+    openRouterKeyCleared: 'Chave da OpenRouter removida.',
+    cloudRetrySaved: 'A transcricao na nuvem falhou. A gravacao foi salva para tentar de novo.',
+    cloudRetrySucceeded: 'Gravacao salva transcrita.',
     trayOpenApp: 'Abrir OpenFlow',
     trayHideApp: 'Ocultar janela',
     trayQuit: 'Fechar',
@@ -295,6 +318,7 @@ let lastHotkeyActionHandling = {
 let lastAudioControllerConfigSignature = '';
 let isQuitting = false;
 let shouldStartHiddenOnLaunch = process.argv.some((arg) => arg === '--background');
+const activeCloudTranscriptionSessions = new Set();
 
 function getDefaultModel() {
   return process.env.WHISPER_MODEL || 'small';
@@ -394,6 +418,11 @@ function getLocalizedLanguageName(code, language = state.interfaceLanguage) {
 function normalizeModel(modelId) {
   const value = String(modelId || '').trim();
   return MODEL_OPTIONS.some((option) => option.id === value) ? value : getDefaultModel();
+}
+
+function normalizeCloudTranscriptionModel(modelId) {
+  const value = String(modelId || '').trim();
+  return value || OPENROUTER_DEFAULT_MODEL;
 }
 
 function createDictionaryEntryId() {
@@ -516,13 +545,16 @@ function normalizeHistory(history) {
       }
 
       const timestamp = String(entry.timestamp || '');
+      const engine = entry.engine === 'cloud' ? 'cloud' : 'local';
       return {
-        model: normalizeModel(entry.model),
+        model: engine === 'cloud' ? normalizeCloudTranscriptionModel(entry.model) : normalizeModel(entry.model),
+        engine,
         text,
         language: String(entry.language || 'unknown'),
         transcriptionMs: Number(entry.transcriptionMs) || 0,
         audioDurationMs: Number(entry.audioDurationMs) || 0,
         wordCount: Number(entry.wordCount) || countWords(text),
+        costUsd: Number(entry.costUsd) || 0,
         timestamp: timestamp || new Date().toISOString(),
       };
     })
@@ -1010,6 +1042,9 @@ function getDefaultsFromEnv() {
     overlayOpacity: DEFAULT_OVERLAY_OPACITY,
     overlayScale: DEFAULT_OVERLAY_SCALE,
     overlayDynamicSize: DEFAULT_OVERLAY_DYNAMIC_SIZE,
+    cloudTranscriptionEnabled: DEFAULT_CLOUD_TRANSCRIPTION_ENABLED,
+    cloudPrivacyNoticeAccepted: DEFAULT_CLOUD_PRIVACY_NOTICE_ACCEPTED,
+    cloudTranscriptionModel: DEFAULT_CLOUD_TRANSCRIPTION_MODEL,
     dictionaryEntries: [],
     overlayPosition: null,
   };
@@ -1065,6 +1100,14 @@ const state = {
   overlayOpacity: defaults.overlayOpacity,
   overlayScale: defaults.overlayScale,
   overlayDynamicSize: defaults.overlayDynamicSize,
+  cloudTranscriptionEnabled: defaults.cloudTranscriptionEnabled,
+  cloudPrivacyNoticeAccepted: defaults.cloudPrivacyNoticeAccepted,
+  cloudTranscriptionModel: defaults.cloudTranscriptionModel,
+  openRouterApiKeyConfigured: false,
+  openRouterModels: [],
+  openRouterModelsStatus: 'idle',
+  openRouterModelsError: '',
+  cloudRetries: [],
   dictionaryEntries: defaults.dictionaryEntries,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
@@ -1152,6 +1195,10 @@ function getSettingsPath() {
   return path.join(getStorageDirectory(), 'settings.json');
 }
 
+function getSecretsPath() {
+  return path.join(getStorageDirectory(), 'secrets.json');
+}
+
 function getLegacySettingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
@@ -1176,11 +1223,16 @@ function getChildProcessRegistryPath() {
   return path.join(getStorageDirectory(), 'child-processes.json');
 }
 
+function getCloudRetriesDirectory() {
+  return path.join(getStorageDirectory(), 'cloud-retries');
+}
+
 function ensureRuntimeDirectories() {
   fs.mkdirSync(getStorageDirectory(), { recursive: true });
   fs.mkdirSync(getModelsDirectory(), { recursive: true });
   fs.mkdirSync(getHuggingFaceHomeDirectory(), { recursive: true });
   fs.mkdirSync(getHuggingFaceHubCacheDirectory(), { recursive: true });
+  fs.mkdirSync(getCloudRetriesDirectory(), { recursive: true });
 }
 
 function readChildProcessRegistry() {
@@ -1290,6 +1342,9 @@ function createEmptyPersistedState() {
       overlayOpacity: defaults.overlayOpacity,
       overlayScale: defaults.overlayScale,
       overlayDynamicSize: defaults.overlayDynamicSize,
+      cloudTranscriptionEnabled: defaults.cloudTranscriptionEnabled,
+      cloudPrivacyNoticeAccepted: defaults.cloudPrivacyNoticeAccepted,
+      cloudTranscriptionModel: defaults.cloudTranscriptionModel,
       dictionaryEntries: defaults.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
@@ -1353,6 +1408,17 @@ function normalizePersistedState(payload) {
         preferencesSource.overlayDynamicSize,
         defaults.overlayDynamicSize,
       ),
+      cloudTranscriptionEnabled: normalizeBooleanPreference(
+        preferencesSource.cloudTranscriptionEnabled,
+        defaults.cloudTranscriptionEnabled,
+      ),
+      cloudPrivacyNoticeAccepted: normalizeBooleanPreference(
+        preferencesSource.cloudPrivacyNoticeAccepted,
+        defaults.cloudPrivacyNoticeAccepted,
+      ),
+      cloudTranscriptionModel: normalizeCloudTranscriptionModel(
+        preferencesSource.cloudTranscriptionModel,
+      ),
       dictionaryEntries: normalizeDictionaryEntries(preferencesSource.dictionaryEntries),
       overlayPosition: defaults.overlayPosition,
     },
@@ -1365,6 +1431,316 @@ function normalizePersistedState(payload) {
 function writeJsonFile(filePath, payload) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2));
+}
+
+function canUseSafeStorage() {
+  try {
+    return Boolean(safeStorage && safeStorage.isEncryptionAvailable());
+  } catch (_error) {
+    return false;
+  }
+}
+
+function protectText(value) {
+  const text = String(value || '');
+  if (canUseSafeStorage()) {
+    return {
+      encrypted: true,
+      data: safeStorage.encryptString(text).toString('base64'),
+    };
+  }
+
+  return {
+    encrypted: false,
+    data: Buffer.from(text, 'utf8').toString('base64'),
+  };
+}
+
+function unprotectText(record) {
+  if (!record || typeof record !== 'object' || !record.data) {
+    return '';
+  }
+
+  try {
+    const buffer = Buffer.from(String(record.data), 'base64');
+    if (record.encrypted) {
+      return safeStorage.decryptString(buffer);
+    }
+
+    return buffer.toString('utf8');
+  } catch (_error) {
+    return '';
+  }
+}
+
+function readSecrets() {
+  const payload = readJsonFile(getSecretsPath());
+  return payload && typeof payload === 'object' ? payload : {};
+}
+
+function writeSecrets(payload) {
+  writeJsonFile(getSecretsPath(), payload && typeof payload === 'object' ? payload : {});
+}
+
+function readOpenRouterApiKey() {
+  return unprotectText(readSecrets().openRouterApiKey).trim();
+}
+
+function hasOpenRouterApiKey() {
+  return Boolean(readOpenRouterApiKey());
+}
+
+function saveOpenRouterApiKey(apiKey) {
+  const value = String(apiKey || '').trim();
+  if (!value) {
+    throw new Error('OpenRouter API key is empty.');
+  }
+
+  const secrets = readSecrets();
+  secrets.openRouterApiKey = protectText(value);
+  writeSecrets(secrets);
+  setState({
+    openRouterApiKeyConfigured: true,
+    notice: translateMain('openRouterKeySaved'),
+    error: '',
+  });
+  void refreshOpenRouterModels();
+  return snapshotState();
+}
+
+async function clearOpenRouterApiKey() {
+  const wasCloudEnabled = state.cloudTranscriptionEnabled;
+  const secrets = readSecrets();
+  delete secrets.openRouterApiKey;
+  writeSecrets(secrets);
+  setState({
+    openRouterApiKeyConfigured: false,
+    cloudTranscriptionEnabled: false,
+    openRouterModels: [],
+    openRouterModelsStatus: 'idle',
+    openRouterModelsError: '',
+    notice: translateMain('openRouterKeyCleared'),
+    error: '',
+  });
+  savePersistentState();
+  if (wasCloudEnabled) {
+    await restartDictationService();
+  }
+  return snapshotState();
+}
+
+function createCloudRetryId() {
+  return `cloud_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getCloudRetryPath(id) {
+  return path.join(getCloudRetriesDirectory(), `${String(id || '').replace(/[^a-z0-9_-]/gi, '')}.json`);
+}
+
+function protectCloudRetryRecord(record) {
+  return protectText(JSON.stringify(record));
+}
+
+function unprotectCloudRetryRecord(payload) {
+  const text = unprotectText(payload);
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const record = JSON.parse(text);
+    return record && typeof record === 'object' ? record : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function readCloudRetryRecord(id) {
+  const protectedPayload = readJsonFile(getCloudRetryPath(id));
+  return unprotectCloudRetryRecord(protectedPayload);
+}
+
+function getCloudRetryRecords() {
+  try {
+    return fs
+      .readdirSync(getCloudRetriesDirectory(), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => readCloudRetryRecord(path.basename(entry.name, '.json')))
+      .filter(Boolean)
+      .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getCloudRetrySnapshot() {
+  return getCloudRetryRecords().map((record) => ({
+    id: record.id,
+    model: record.model,
+    language: record.language || 'unknown',
+    audioDurationMs: record.audioDurationMs || 0,
+    createdAt: record.createdAt,
+    error: record.error || '',
+  }));
+}
+
+function pruneCloudRetries() {
+  const records = getCloudRetryRecords();
+  for (const record of records.slice(CLOUD_RETRY_LIMIT)) {
+    try {
+      fs.unlinkSync(getCloudRetryPath(record.id));
+    } catch (_error) {
+      // Best effort.
+    }
+  }
+}
+
+function saveCloudRetry(payload, error) {
+  const record = {
+    id: createCloudRetryId(),
+    model: normalizeCloudTranscriptionModel(payload.model || state.cloudTranscriptionModel),
+    format: String(payload.format || 'wav').toLowerCase(),
+    data: String(payload.data || ''),
+    language: payload.language || 'unknown',
+    audioDurationMs: Number(payload.audio_duration_ms || payload.audioDurationMs) || 0,
+    createdAt: new Date().toISOString(),
+    error: String((error && error.message) || error || ''),
+  };
+
+  writeJsonFile(getCloudRetryPath(record.id), protectCloudRetryRecord(record));
+  pruneCloudRetries();
+  setState({
+    cloudRetries: getCloudRetrySnapshot(),
+  });
+  return record;
+}
+
+function deleteCloudRetry(id) {
+  try {
+    fs.unlinkSync(getCloudRetryPath(id));
+  } catch (_error) {
+    // Best effort.
+  }
+
+  setState({
+    cloudRetries: getCloudRetrySnapshot(),
+  });
+}
+
+function formatOpenRouterPricing(pricing = {}, contextLength = 0) {
+  const input = Number(pricing.prompt);
+  const output = Number(pricing.completion);
+  const hasInput = Number.isFinite(input) && input > 0;
+  const hasOutput = Number.isFinite(output) && output > 0;
+
+  if (!hasInput && !hasOutput) {
+    return 'Price unavailable';
+  }
+
+  if (hasOutput || contextLength > 0) {
+    const inputLabel = hasInput ? `$${(input * 1000000).toFixed(2)}/M input` : '$0/M input';
+    const outputLabel = hasOutput ? `$${(output * 1000000).toFixed(2)}/M output` : '$0/M output';
+    return `${inputLabel}, ${outputLabel}`;
+  }
+
+  return `$${input.toFixed(6)} input billing unit`;
+}
+
+function normalizeOpenRouterModel(rawModel) {
+  const model = rawModel && typeof rawModel === 'object' ? rawModel : {};
+  const id = normalizeCloudTranscriptionModel(model.id);
+  const description = String(model.description || '').replace(/\s+/g, ' ').trim();
+
+  return {
+    id,
+    name: String(model.name || id),
+    description: description.length > 190 ? `${description.slice(0, 187)}...` : description,
+    pricing: model.pricing || {},
+    pricingLabel: formatOpenRouterPricing(model.pricing || {}, Number(model.context_length) || 0),
+  };
+}
+
+async function fetchOpenRouterModelsFromApi() {
+  if (typeof fetch !== 'function') {
+    throw new Error('Fetch is not available in this runtime.');
+  }
+
+  const apiKey = readOpenRouterApiKey();
+  const headers = {
+    Accept: 'application/json',
+    'User-Agent': `${APP_NAME}/${app.getVersion()}`,
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(OPENROUTER_STT_MODELS_URL, { headers });
+  if (!response.ok) {
+    throw new Error(`OpenRouter model lookup failed with HTTP ${response.status}.`);
+  }
+
+  const payload = await response.json();
+  const models = Array.isArray(payload.data) ? payload.data.map(normalizeOpenRouterModel) : [];
+  if (models.length === 0) {
+    throw new Error('OpenRouter returned no speech-to-text models.');
+  }
+
+  return models;
+}
+
+async function refreshOpenRouterModels() {
+  if (!hasOpenRouterApiKey()) {
+    setState({
+      openRouterModels: [],
+      openRouterModelsStatus: 'idle',
+      openRouterModelsError: '',
+      openRouterApiKeyConfigured: false,
+    });
+    return snapshotState();
+  }
+
+  setState({
+    openRouterModelsStatus: 'loading',
+    openRouterModelsError: '',
+    openRouterApiKeyConfigured: true,
+  });
+
+  try {
+    const models = await fetchOpenRouterModelsFromApi();
+    const selectedModel = models.some((model) => model.id === state.cloudTranscriptionModel)
+      ? state.cloudTranscriptionModel
+      : models[0].id;
+    setState({
+      openRouterModels: models,
+      cloudTranscriptionModel: selectedModel,
+      openRouterModelsStatus: 'ready',
+      openRouterModelsError: '',
+    });
+    savePersistentState();
+  } catch (error) {
+    setState({
+      openRouterModelsStatus: 'error',
+      openRouterModelsError: String((error && error.message) || error),
+      error: String((error && error.message) || error),
+    });
+  }
+
+  return snapshotState();
+}
+
+function getOpenRouterModelName(modelId) {
+  const model = (state.openRouterModels || []).find((item) => item.id === modelId);
+  return (model && model.name) || modelId;
+}
+
+function getSingleOpenRouterLanguage(languages) {
+  const selectedLanguages = Array.isArray(languages) ? languages : [];
+  if (selectedLanguages.length !== 1) {
+    return null;
+  }
+
+  const language = String(selectedLanguages[0] || '').trim().toLowerCase();
+  return /^[a-z]{2}$/.test(language) ? language : null;
 }
 
 function loadPersistentState() {
@@ -1404,6 +1780,9 @@ function savePersistentState() {
       overlayOpacity: state.overlayOpacity,
       overlayScale: state.overlayScale,
       overlayDynamicSize: state.overlayDynamicSize,
+      cloudTranscriptionEnabled: state.cloudTranscriptionEnabled,
+      cloudPrivacyNoticeAccepted: state.cloudPrivacyNoticeAccepted,
+      cloudTranscriptionModel: state.cloudTranscriptionModel,
       dictionaryEntries: state.dictionaryEntries,
       overlayPosition: defaults.overlayPosition,
     },
@@ -1860,6 +2239,7 @@ function getServiceEnv() {
   return {
     ...process.env,
     WHISPER_MODEL: state.model,
+    FLOW_TRANSCRIPTION_ENGINE: state.cloudTranscriptionEnabled ? 'cloud' : 'local',
     WHISPER_MODEL_DIR: getModelsDirectory(),
     ALLOWED_LANGUAGES: state.allowedLanguages.join(','),
     FLOW_HOTKEY: state.shortcut,
@@ -2507,6 +2887,9 @@ function cancelDictation(source = 'escape') {
   const nextNotice =
     source === 'escape' ? 'Ditado cancelado por Esc.' : 'Ditado cancelado.';
   const sessionId = state.dictationSessionId;
+  if (sessionId !== null) {
+    activeCloudTranscriptionSessions.delete(sessionId);
+  }
   resetDictationFeedbackState();
 
   setState({
@@ -2577,6 +2960,216 @@ function classifyWarning(message) {
   });
 }
 
+async function commitTranscription(payload, sessionId, options = {}) {
+  const text = String(payload.text || '').trim();
+  if (!text) {
+    return;
+  }
+
+  const shouldPaste = options.paste !== false;
+  const isCloud = payload.engine === 'cloud';
+  const resolvedText = applyDictionaryReplacements(text, payload.language);
+  const pasteText = normalizeTextForPaste(resolvedText);
+  const entry = {
+    model: payload.model || (isCloud ? state.cloudTranscriptionModel : state.model),
+    engine: isCloud ? 'cloud' : 'local',
+    text: resolvedText,
+    language: payload.language || 'unknown',
+    transcriptionMs: payload.transcription_ms || payload.transcriptionMs || 0,
+    audioDurationMs: payload.audio_duration_ms || payload.audioDurationMs || 0,
+    wordCount: countWords(resolvedText),
+    timestamp: new Date().toISOString(),
+    costUsd: Number(payload.cost_usd || payload.costUsd) || 0,
+  };
+  const history = applyHistoryRetention([entry, ...state.history], state.keepAllTranscriptions);
+  const usageStats = recordUsage(state.usageStats, entry);
+  const modelStats = isCloud
+    ? state.modelStats
+    : recordModelTiming(payload.model || state.model, entry.transcriptionMs);
+
+  setState({
+    latestFinal: resolvedText,
+    latestLanguage: payload.language || 'unknown',
+    partial: '',
+    history,
+    usageStats,
+    modelStats,
+    dictationSessionId: sessionId,
+    pendingPaste: shouldPaste,
+    phase: shouldPaste ? 'transcribing' : state.listening ? 'listening' : 'idle',
+    error: '',
+  });
+  savePersistentState();
+
+  if (!shouldPaste) {
+    return;
+  }
+
+  try {
+    await insertTextIntoFocusedApp(pasteText);
+  } catch (error) {
+    setState({
+      error: `Failed to paste text into the active field: ${error.message}`,
+    });
+  } finally {
+    setState({
+      dictationSessionId: state.listening ? state.dictationSessionId : null,
+      pendingPaste: false,
+      phase: state.listening ? 'listening' : 'idle',
+    });
+  }
+}
+
+async function transcribeWithOpenRouter(audioPayload, options = {}) {
+  const apiKey = readOpenRouterApiKey();
+  if (!apiKey) {
+    throw new Error('OpenRouter API key is not configured.');
+  }
+
+  const model = normalizeCloudTranscriptionModel(
+    audioPayload.model || options.model || state.cloudTranscriptionModel,
+  );
+  const body = {
+    model,
+    input_audio: {
+      data: String(audioPayload.data || ''),
+      format: String(audioPayload.format || 'wav').toLowerCase(),
+    },
+    temperature: 0,
+  };
+  const requestLanguage = getSingleOpenRouterLanguage(state.allowedLanguages);
+  if (requestLanguage) {
+    body.language = requestLanguage;
+  }
+
+  const startedAt = Date.now();
+  const response = await fetch(OPENROUTER_STT_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'User-Agent': `${APP_NAME}/${app.getVersion()}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const responseText = await response.text();
+  let result = null;
+  try {
+    result = responseText ? JSON.parse(responseText) : {};
+  } catch (_error) {
+    result = {};
+  }
+
+  if (!response.ok) {
+    const message = result && (result.error?.message || result.message);
+    throw new Error(message || `OpenRouter transcription failed with HTTP ${response.status}.`);
+  }
+
+  const text = String((result && result.text) || '').trim();
+  if (!text) {
+    throw new Error('OpenRouter returned an empty transcription.');
+  }
+
+  return {
+    engine: 'cloud',
+    model,
+    text,
+    language: requestLanguage || 'unknown',
+    transcription_ms: Date.now() - startedAt,
+    audio_duration_ms:
+      Number(audioPayload.audio_duration_ms || audioPayload.audioDurationMs) ||
+      Number(result?.usage?.seconds || 0) * 1000 ||
+      0,
+    cost_usd: Number(result?.usage?.cost) || 0,
+  };
+}
+
+async function handleCloudAudioPayload(payload, sessionId) {
+  if (!isCurrentDictationSession(sessionId)) {
+    return;
+  }
+
+  if (sessionId !== null) {
+    activeCloudTranscriptionSessions.add(sessionId);
+  }
+  setState({
+    phase: 'transcribing',
+    partial: '',
+    error: '',
+  });
+
+  try {
+    const result = await transcribeWithOpenRouter(payload);
+    if (!isCurrentDictationSession(sessionId)) {
+      return;
+    }
+    await commitTranscription(result, sessionId, { paste: true });
+  } catch (error) {
+    if (!isCurrentDictationSession(sessionId)) {
+      return;
+    }
+    saveCloudRetry(
+      {
+        ...payload,
+        model: state.cloudTranscriptionModel,
+      },
+      error,
+    );
+    resetDictationFeedbackState();
+    releaseCaptureMute(true);
+    setState({
+      notice: translateMain('cloudRetrySaved'),
+      error: String((error && error.message) || error),
+      pendingPaste: false,
+      pendingStartMode: null,
+      captureMode: null,
+      dictationSessionId: null,
+      phase: 'idle',
+    });
+  } finally {
+    if (sessionId !== null) {
+      activeCloudTranscriptionSessions.delete(sessionId);
+    }
+  }
+}
+
+async function retryCloudTranscription(id) {
+  const record = readCloudRetryRecord(id);
+  if (!record) {
+    throw new Error('Saved recording was not found.');
+  }
+
+  setState({
+    phase: 'transcribing',
+    error: '',
+  });
+
+  try {
+    const result = await transcribeWithOpenRouter(record, { model: record.model });
+    await commitTranscription(result, null, { paste: false });
+    deleteCloudRetry(record.id);
+    setState({
+      notice: translateMain('cloudRetrySucceeded'),
+      phase: state.listening ? 'listening' : 'idle',
+    });
+  } catch (error) {
+    const updated = {
+      ...record,
+      error: String((error && error.message) || error),
+    };
+    writeJsonFile(getCloudRetryPath(record.id), protectCloudRetryRecord(updated));
+    setState({
+      cloudRetries: getCloudRetrySnapshot(),
+      error: updated.error,
+      phase: state.listening ? 'listening' : 'idle',
+    });
+  }
+
+  return snapshotState();
+}
+
 async function handleServiceEvent(event) {
   const payload = event.payload || {};
   const sessionId = extractSessionId(payload);
@@ -2591,7 +3184,7 @@ async function handleServiceEvent(event) {
           engineReady: true,
           phase: 'idle',
           serviceOnline: true,
-          model: payload.model || state.model,
+          model: state.cloudTranscriptionEnabled ? state.model : payload.model || state.model,
           device: payload.device || state.device,
           deviceNote: payload.note || state.deviceNote,
           switchingModel: false,
@@ -2612,6 +3205,14 @@ async function handleServiceEvent(event) {
       }
     case 'state':
       if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
+      if (sessionId !== null && activeCloudTranscriptionSessions.has(sessionId)) {
+        setState({
+          listening: Boolean(payload.listening),
+          dictationSessionId: sessionId,
+          phase: 'transcribing',
+        });
         break;
       }
       if (!payload.listening || payload.phase !== 'listening') {
@@ -2647,57 +3248,14 @@ async function handleServiceEvent(event) {
         partial: payload.text || '',
       });
       break;
+    case 'audio':
+      await handleCloudAudioPayload(payload, sessionId);
+      break;
     case 'final': {
       if (!isCurrentDictationSession(sessionId)) {
         break;
       }
-      const text = String(payload.text || '').trim();
-      if (!text) {
-        break;
-      }
-
-      const resolvedText = applyDictionaryReplacements(text, payload.language);
-      const pasteText = normalizeTextForPaste(resolvedText);
-      const entry = {
-        model: payload.model || state.model,
-        text: resolvedText,
-        language: payload.language || 'unknown',
-        transcriptionMs: payload.transcription_ms || 0,
-        audioDurationMs: payload.audio_duration_ms || 0,
-        wordCount: countWords(resolvedText),
-        timestamp: new Date().toISOString(),
-      };
-      const history = applyHistoryRetention([entry, ...state.history], state.keepAllTranscriptions);
-      const usageStats = recordUsage(state.usageStats, entry);
-      const modelStats = recordModelTiming(payload.model || state.model, payload.transcription_ms);
-
-      setState({
-        latestFinal: resolvedText,
-        latestLanguage: payload.language || 'unknown',
-        partial: '',
-        history,
-        usageStats,
-        modelStats,
-        dictationSessionId: sessionId,
-        pendingPaste: true,
-        phase: 'transcribing',
-        error: '',
-      });
-      savePersistentState();
-
-      try {
-        await insertTextIntoFocusedApp(pasteText);
-      } catch (error) {
-        setState({
-      error: `Failed to paste text into the active field: ${error.message}`,
-        });
-      } finally {
-        setState({
-          dictationSessionId: state.listening ? state.dictationSessionId : null,
-          pendingPaste: false,
-          phase: state.listening ? 'listening' : 'idle',
-        });
-      }
+      await commitTranscription({ ...payload, engine: 'local' }, sessionId, { paste: true });
       break;
     }
     case 'warning':
@@ -3305,7 +3863,10 @@ async function shutdownServiceForRestart() {
     return;
   }
 
-  const localToken = serviceToken;
+  const currentPid = currentProcess.pid;
+  serviceToken += 1;
+  serviceProcess = null;
+  serviceReader = null;
 
   await new Promise((resolve) => {
     let resolved = false;
@@ -3323,23 +3884,25 @@ async function shutdownServiceForRestart() {
       } catch (_error) {
         // Best effort.
       }
+      untrackChildProcess('dictation_service', currentPid);
       finish();
     }, SERVICE_SHUTDOWN_TIMEOUT_MS);
 
     currentProcess.once('close', () => {
       clearTimeout(timeout);
+      untrackChildProcess('dictation_service', currentPid);
       finish();
     });
 
-    if (localToken === serviceToken) {
-      try {
-        sendServiceCommand('shutdown');
-      } catch (_error) {
-        clearTimeout(timeout);
-        finish();
+    try {
+      if (currentProcess.stdin && currentProcess.stdin.writable) {
+        currentProcess.stdin.write(`${JSON.stringify({ type: 'shutdown', payload: {} })}\n`);
+      } else {
+        currentProcess.kill();
       }
-    } else {
+    } catch (_error) {
       clearTimeout(timeout);
+      untrackChildProcess('dictation_service', currentPid);
       finish();
     }
   });
@@ -3347,6 +3910,7 @@ async function shutdownServiceForRestart() {
 
 async function restartDictationService() {
   const restartVersion = ++serviceRestartVersion;
+  activeCloudTranscriptionSessions.clear();
   resetDictationFeedbackState();
   releaseCaptureMute(true);
   setState({
@@ -3412,9 +3976,33 @@ async function applySettings(patch) {
     typeof patch.overlayDynamicSize === 'boolean'
       ? patch.overlayDynamicSize
       : state.overlayDynamicSize;
+  const nextCloudPrivacyNoticeAccepted =
+    typeof patch.cloudPrivacyNoticeAccepted === 'boolean'
+      ? patch.cloudPrivacyNoticeAccepted
+      : state.cloudPrivacyNoticeAccepted;
+  const nextCloudTranscriptionEnabled =
+    typeof patch.cloudTranscriptionEnabled === 'boolean'
+      ? patch.cloudTranscriptionEnabled
+      : state.cloudTranscriptionEnabled;
+  const nextCloudTranscriptionModel = Object.prototype.hasOwnProperty.call(
+    patch,
+    'cloudTranscriptionModel',
+  )
+    ? normalizeCloudTranscriptionModel(patch.cloudTranscriptionModel)
+    : state.cloudTranscriptionModel;
+
+  if (nextCloudTranscriptionEnabled && !nextCloudPrivacyNoticeAccepted) {
+    throw new Error('Cloud transcription requires privacy notice acceptance.');
+  }
+  if (nextCloudTranscriptionEnabled && !hasOpenRouterApiKey()) {
+    throw new Error('OpenRouter API key is required for cloud transcription.');
+  }
+
   const nextHistory = applyHistoryRetention(state.history, nextKeepAllTranscriptions);
 
   const modelChanged = nextModel !== state.model;
+  const cloudEngineChanged = nextCloudTranscriptionEnabled !== state.cloudTranscriptionEnabled;
+  const cloudModelChanged = nextCloudTranscriptionModel !== state.cloudTranscriptionModel;
   const languagesChanged = nextLanguages.join(',') !== state.allowedLanguages.join(',');
   const interfaceLanguageChanged = nextInterfaceLanguage !== state.interfaceLanguage;
   const overlayChanged = nextShowOverlayBar !== state.showOverlayBar;
@@ -3443,6 +4031,14 @@ async function applySettings(patch) {
       { model: getModelDisplayName(nextModel, nextInterfaceLanguage) },
       nextInterfaceLanguage,
     );
+  } else if (cloudEngineChanged) {
+    notice = translateMain(
+      nextCloudTranscriptionEnabled ? 'cloudTranscriptionOn' : 'cloudTranscriptionOff',
+      {},
+      nextInterfaceLanguage,
+    );
+  } else if (cloudModelChanged) {
+    notice = translateMain('cloudModelUpdated', {}, nextInterfaceLanguage);
   } else if (overlayChanged) {
     notice = translateMain(
       nextShowOverlayBar ? 'overlayOn' : 'overlayOff',
@@ -3508,6 +4104,10 @@ async function applySettings(patch) {
     overlayOpacity: nextOverlayOpacity,
     overlayScale: nextOverlayScale,
     overlayDynamicSize: nextOverlayDynamicSize,
+    cloudTranscriptionEnabled: nextCloudTranscriptionEnabled,
+    cloudPrivacyNoticeAccepted: nextCloudPrivacyNoticeAccepted,
+    cloudTranscriptionModel: nextCloudTranscriptionModel,
+    openRouterApiKeyConfigured: hasOpenRouterApiKey(),
     history: nextHistory,
     dictionaryEntries: nextDictionaryEntries,
     notice,
@@ -3535,7 +4135,7 @@ async function applySettings(patch) {
     restartHotkeyListener();
   }
 
-  if (modelChanged) {
+  if (cloudEngineChanged || (modelChanged && !nextCloudTranscriptionEnabled)) {
     await restartDictationService();
   } else if (languagesChanged) {
     sendServiceCommand('configure', {
@@ -4091,6 +4691,12 @@ function scheduleStartupUpdateCheck() {
 ipcMain.handle('get-state', async () => snapshotState());
 ipcMain.handle('update-settings', async (_event, patch) => applySettings(patch || {}));
 ipcMain.handle('reset-model-stats', async () => resetModelStats());
+ipcMain.handle('save-openrouter-api-key', async (_event, apiKey) => saveOpenRouterApiKey(apiKey));
+ipcMain.handle('clear-openrouter-api-key', async () => clearOpenRouterApiKey());
+ipcMain.handle('refresh-openrouter-models', async () => refreshOpenRouterModels());
+ipcMain.handle('retry-cloud-transcription', async (_event, retryId) =>
+  retryCloudTranscription(retryId),
+);
 ipcMain.on('overlay-drag-move', (_event, position) => {
   positionOverlayWindow(position);
 });
@@ -4136,6 +4742,7 @@ app.whenReady().then(() => {
   cleanupTrackedChildProcesses();
 
   const persistedState = loadPersistentState();
+  const openRouterApiKeyConfigured = hasOpenRouterApiKey();
   setState({
     allowedLanguages: persistedState.preferences.allowedLanguages,
     interfaceLanguage: persistedState.preferences.interfaceLanguage,
@@ -4153,9 +4760,18 @@ app.whenReady().then(() => {
     overlayOpacity: persistedState.preferences.overlayOpacity,
     overlayScale: persistedState.preferences.overlayScale,
     overlayDynamicSize: persistedState.preferences.overlayDynamicSize,
+    cloudTranscriptionEnabled:
+      persistedState.preferences.cloudTranscriptionEnabled && openRouterApiKeyConfigured,
+    cloudPrivacyNoticeAccepted: persistedState.preferences.cloudPrivacyNoticeAccepted,
+    cloudTranscriptionModel: persistedState.preferences.cloudTranscriptionModel,
+    openRouterApiKeyConfigured,
+    cloudRetries: getCloudRetrySnapshot(),
     dictionaryEntries: persistedState.preferences.dictionaryEntries,
     overlayPosition: defaults.overlayPosition,
   });
+  if (persistedState.preferences.cloudTranscriptionEnabled && !openRouterApiKeyConfigured) {
+    savePersistentState();
+  }
   shouldStartHiddenOnLaunch =
     shouldStartHiddenOnLaunch || Boolean(app.getLoginItemSettings().wasOpenedAsHidden);
   rebuildDictionaryReplacementIndex(persistedState.preferences.dictionaryEntries);
@@ -4169,6 +4785,9 @@ app.whenReady().then(() => {
   bootDictationService();
   bootHotkeyListener();
   scheduleStartupUpdateCheck();
+  if (hasOpenRouterApiKey()) {
+    void refreshOpenRouterModels();
+  }
 
   screen.on('display-added', resyncOverlayWindowPosition);
   screen.on('display-removed', resyncOverlayWindowPosition);

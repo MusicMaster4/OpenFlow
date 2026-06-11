@@ -154,15 +154,11 @@ Expected outputs:
 - [`.github/workflows/build-macos.yml`](./.github/workflows/build-macos.yml)
 - [`.github/workflows/release-main.yml`](./.github/workflows/release-main.yml)
 
-On a normal branch push the platform workflows only upload CI artifacts. On a push to
-`main`, the release workflow validates that the app version changed, builds Windows and
-macOS, and only then creates a draft GitHub release with the generated installers and
-update metadata.
-
-Manual tag builds are still supported for recovery or one-off releases: pushing a tag
-that starts with `v` (for example `v1.1.0`) makes the platform workflows publish the
-installers plus the `latest.yml` / `latest-mac.yml` update metadata to the matching
-GitHub release.
+On a normal branch push the platform workflows only upload CI artifacts. They do not run
+on version tags and do not create GitHub releases. On a push to `main`, the release
+workflow validates that the app version changed, validates the `x.x.xxx` version format,
+builds Windows and macOS, and only then creates a draft GitHub release with the generated
+installers and update metadata.
 
 ## Releases and in-app auto-update
 
@@ -183,9 +179,10 @@ Release flow:
    the correct OS asset. On macOS, OpenFlow uses architecture-specific update channels:
    `latest-x64-mac.yml` for Intel and `latest-arm64-mac.yml` for Apple Silicon.
 
-To publish locally instead of via CI, set a `GH_TOKEN` with `repo` scope and run
-`OPENFLOW_PUBLISH=always npm run dist:win` (Windows) or
-`npm run publish:mac:arm64` / `npm run publish:mac:x64` (macOS).
+To publish locally instead of via CI, create the GitHub release with tag `v<version>` and
+upload the generated artifacts manually. Avoid Electron Builder's automatic GitHub
+publishing for Windows because it can normalize padded versions such as `1.3.009` to
+`1.3.9`.
 
 ### macOS update metadata
 

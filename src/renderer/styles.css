@@ -1060,6 +1060,148 @@ h1, h2, h3 {
   transition: width 0.2s ease;
 }
 
+.model-section {
+  display: grid;
+  gap: 12px;
+}
+
+.model-section + .model-section {
+  margin-top: 22px;
+}
+
+.model-section__head {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--muted-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cloud-settings {
+  margin: 0 0 4px;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg-subtle);
+}
+
+.cloud-key-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cloud-key-saved {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+}
+
+.cloud-key-saved span {
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+}
+
+.cloud-key-form__actions,
+.cloud-privacy-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.cloud-model-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 16px 0 12px;
+}
+
+.cloud-model-toolbar strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.cloud-model-toolbar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.model-list--cloud {
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.cloud-retry-section {
+  margin-top: 18px;
+}
+
+.cloud-retry-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cloud-retry-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  background: var(--panel-bg);
+}
+
+.cloud-retry-item strong {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.cloud-retry-item p,
+.cloud-retry-item span {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.dialog-window--compact {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.dialog-window--compact .dialog-window__header {
+  border-bottom: none;
+}
+
+#cloud-privacy-backdrop {
+  z-index: 80;
+}
+
+#cloud-privacy-dialog {
+  z-index: 81;
+}
+
+.cloud-privacy-actions {
+  padding: 0 24px 24px;
+}
+
 .toggle-card strong {
   display: block;
   font-size: 0.95rem;

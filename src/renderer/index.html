@@ -453,10 +453,111 @@
                 Reset average
               </button>
             </div>
-            <div class="model-list" id="model-list"></div>
+            <div class="model-section">
+              <div class="model-section__head">
+                <strong data-i18n="localModels">Local models</strong>
+              </div>
+              <div class="model-list" id="model-list"></div>
+            </div>
+
+            <div class="model-section model-section--cloud">
+              <div class="model-section__head">
+                <strong data-i18n="cloudModels">Cloud models</strong>
+              </div>
+              <label class="toggle-card" for="cloud-transcription-enabled">
+                <div>
+                  <strong data-i18n="processInCloud">Process in the cloud</strong>
+                  <p data-i18n="processInCloudCopy">Use OpenRouter speech-to-text models.</p>
+                </div>
+                <span class="toggle-switch">
+                  <input id="cloud-transcription-enabled" type="checkbox" />
+                  <span></span>
+                </span>
+              </label>
+
+              <div class="cloud-settings hidden" id="cloud-settings">
+                <div class="cloud-key-saved hidden" id="openrouter-key-saved">
+                  <span id="openrouter-key-status"></span>
+                  <div class="cloud-key-form__actions">
+                    <button class="secondary-button" id="change-openrouter-key" type="button" data-i18n="changeApiKey">
+                      Change key
+                    </button>
+                    <button class="secondary-button" id="clear-openrouter-key" type="button" data-i18n="clearApiKey">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                <form class="cloud-key-form" id="openrouter-key-form">
+                  <label class="form-field" for="openrouter-api-key">
+                    <span data-i18n="openRouterApiKey">OpenRouter API key</span>
+                    <input
+                      id="openrouter-api-key"
+                      type="password"
+                      autocomplete="off"
+                      data-i18n-placeholder="openRouterApiKeyPlaceholder"
+                      placeholder="sk-or-..."
+                    />
+                  </label>
+                  <div class="cloud-key-form__actions">
+                    <button class="settings-button" id="save-openrouter-key" type="submit" data-i18n="saveApiKey">
+                      Save key
+                    </button>
+                    <button class="secondary-button hidden" id="cancel-openrouter-key-change" type="button" data-i18n="cancelEditing">
+                      Cancel editing
+                    </button>
+                  </div>
+                </form>
+
+                <div class="cloud-model-toolbar">
+                  <div>
+                    <strong data-i18n="cloudModel">Cloud model</strong>
+                    <p data-i18n="cloudModelCopy">OpenRouter models and prices.</p>
+                  </div>
+                  <button class="secondary-button" id="refresh-openrouter-models" type="button" data-i18n="refreshModels">
+                    Refresh
+                  </button>
+                </div>
+                <div class="model-list model-list--cloud" id="cloud-model-list"></div>
+
+                <div class="cloud-retry-section" id="cloud-retry-section">
+                  <div class="cloud-model-toolbar">
+                    <div>
+                      <strong data-i18n="savedCloudRecordings">Saved failed recordings</strong>
+                      <p data-i18n="savedCloudRecordingsCopy">Retry without recording again.</p>
+                    </div>
+                  </div>
+                  <div class="cloud-retry-list" id="cloud-retry-list"></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
+
+      <div class="dialog-backdrop hidden" id="cloud-privacy-backdrop"></div>
+      <section
+        class="dialog-window dialog-window--compact hidden"
+        id="cloud-privacy-dialog"
+        aria-hidden="true"
+        aria-labelledby="cloud-privacy-title"
+      >
+        <div class="dialog-window__header">
+          <div>
+            <h2 id="cloud-privacy-title" data-i18n="cloudPrivacyTitle">Cloud privacy notice</h2>
+            <p class="section-head__copy" data-i18n="cloudPrivacyCopy">
+              When cloud transcription is enabled, your audio is sent to OpenRouter and the selected provider. OpenFlow cannot guarantee that third parties delete or retain data in a specific way.
+            </p>
+          </div>
+        </div>
+        <div class="cloud-privacy-actions">
+          <button class="secondary-button" id="cancel-cloud-privacy" type="button" data-i18n="cancelCloud">
+            Keep local
+          </button>
+          <button class="settings-button" id="accept-cloud-privacy" type="button" data-i18n="acceptCloud">
+            Enable cloud
+          </button>
+        </div>
+      </section>
 
       <div class="dialog-backdrop hidden" id="dictionary-backdrop"></div>
       <section
