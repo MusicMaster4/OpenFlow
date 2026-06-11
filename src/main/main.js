@@ -54,6 +54,7 @@ const OPENROUTER_STT_MODELS_URL = `${OPENROUTER_BASE_URL}/models?output_modaliti
 const OPENROUTER_STT_URL = `${OPENROUTER_BASE_URL}/audio/transcriptions`;
 const OPENROUTER_DEFAULT_MODEL = DEFAULT_CLOUD_TRANSCRIPTION_MODEL;
 const CLOUD_RETRY_LIMIT = 20;
+const CLOUD_TRANSCRIPTION_TIMEOUT_MS = 120000;
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -1595,7 +1596,7 @@ function pruneCloudRetries() {
   }
 }
 
-function saveCloudRetry(payload, error) {
+function saveCloudRetry(payload, error, options = {}) {
   const record = {
     id: createCloudRetryId(),
     model: normalizeCloudTranscriptionModel(payload.model || state.cloudTranscriptionModel),
@@ -1609,10 +1610,29 @@ function saveCloudRetry(payload, error) {
 
   writeJsonFile(getCloudRetryPath(record.id), protectCloudRetryRecord(record));
   pruneCloudRetries();
+  if (!options.silent) {
+    setState({
+      cloudRetries: getCloudRetrySnapshot(),
+    });
+  }
+  return record;
+}
+
+function updateCloudRetryError(id, error) {
+  const record = readCloudRetryRecord(id);
+  if (!record) {
+    return null;
+  }
+
+  const updated = {
+    ...record,
+    error: String((error && error.message) || error || ''),
+  };
+  writeJsonFile(getCloudRetryPath(record.id), protectCloudRetryRecord(updated));
   setState({
     cloudRetries: getCloudRetrySnapshot(),
   });
-  return record;
+  return updated;
 }
 
 function deleteCloudRetry(id) {
@@ -3043,16 +3063,32 @@ async function transcribeWithOpenRouter(audioPayload, options = {}) {
   }
 
   const startedAt = Date.now();
-  const response = await fetch(OPENROUTER_STT_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'User-Agent': `${APP_NAME}/${app.getVersion()}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => {
+    abortController.abort();
+  }, CLOUD_TRANSCRIPTION_TIMEOUT_MS);
+  let response = null;
+
+  try {
+    response = await fetch(OPENROUTER_STT_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'User-Agent': `${APP_NAME}/${app.getVersion()}`,
+      },
+      body: JSON.stringify(body),
+      signal: abortController.signal,
+    });
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error('OpenRouter transcription timed out.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const responseText = await response.text();
   let result = null;
@@ -3091,6 +3127,15 @@ async function handleCloudAudioPayload(payload, sessionId) {
     return;
   }
 
+  const retryRecord = saveCloudRetry(
+    {
+      ...payload,
+      model: state.cloudTranscriptionModel,
+    },
+    '',
+    { silent: true },
+  );
+
   if (sessionId !== null) {
     activeCloudTranscriptionSessions.add(sessionId);
   }
@@ -3103,20 +3148,17 @@ async function handleCloudAudioPayload(payload, sessionId) {
   try {
     const result = await transcribeWithOpenRouter(payload);
     if (!isCurrentDictationSession(sessionId)) {
+      deleteCloudRetry(retryRecord.id);
       return;
     }
     await commitTranscription(result, sessionId, { paste: true });
+    deleteCloudRetry(retryRecord.id);
   } catch (error) {
     if (!isCurrentDictationSession(sessionId)) {
+      deleteCloudRetry(retryRecord.id);
       return;
     }
-    saveCloudRetry(
-      {
-        ...payload,
-        model: state.cloudTranscriptionModel,
-      },
-      error,
-    );
+    updateCloudRetryError(retryRecord.id, error);
     resetDictationFeedbackState();
     releaseCaptureMute(true);
     setState({
