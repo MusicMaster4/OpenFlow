@@ -158,7 +158,8 @@ On a normal branch push the platform workflows only upload CI artifacts. They do
 on version tags and do not create GitHub releases. On a push to `main`, the release
 workflow validates that the app version changed, validates the `x.x.xxx` version format,
 builds Windows and macOS, and only then creates a draft GitHub release with the generated
-installers and update metadata.
+installers and update metadata. The release workflow and each release job are explicitly
+guarded to run only for push events on `main`.
 
 ## Releases and in-app auto-update
 
