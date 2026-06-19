@@ -344,10 +344,12 @@ h1, h2, h3 {
   display: grid;
   grid-template-columns: 1fr;
   gap: 32px;
+  min-width: 0;
 }
 
 .main-column {
   display: grid;
+  min-width: 0;
 }
 
 /* Transcripts Panel */
@@ -357,6 +359,7 @@ h1, h2, h3 {
   border-radius: var(--radius-lg);
   padding: 24px;
   box-shadow: var(--shadow-md);
+  min-width: 0;
 }
 
 .section-head {
@@ -422,9 +425,11 @@ h1, h2, h3 {
 .history-list {
   height: 400px;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-md);
   background: var(--panel-bg-subtle);
+  min-width: 0;
 }
 
 .history-item {
@@ -433,6 +438,8 @@ h1, h2, h3 {
   padding: 20px;
   border-bottom: 1px solid var(--panel-border);
   background: var(--panel-bg-elevated);
+  align-items: flex-start;
+  min-width: 0;
 }
 .history-item:last-child {
   border-bottom: none;
@@ -455,13 +462,16 @@ h1, h2, h3 {
 }
 
 .history-item__body {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .history-item__body p {
   margin: 0 0 12px 0;
   line-height: 1.5;
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .history-item__meta {
@@ -476,6 +486,7 @@ h1, h2, h3 {
   height: 32px;
   padding: 0 12px;
   font-size: 0.8rem;
+  flex: 0 0 auto;
 }
 
 .history-empty {
