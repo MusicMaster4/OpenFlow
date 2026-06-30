@@ -77,59 +77,6 @@ function Invoke-ClipboardAction {
   throw "Failed to access the clipboard during '$Operation': $($lastError.Exception.Message)"
 }
 
-function Copy-ClipboardSnapshot {
-  # GetDataObject() hands back a *live* reference to the OLE clipboard. The moment
-  # we overwrite the clipboard with the transcription that reference goes stale, so
-  # restoring it later throws (and the catch below silently leaves our text behind --
-  # the exact bug users see). Eagerly deep-copy every native format into a detached
-  # DataObject we fully own so the restore actually puts the old content back.
-  $source = [System.Windows.Forms.Clipboard]::GetDataObject()
-  if ($null -eq $source) {
-    return $null
-  }
-
-  $snapshot = New-Object System.Windows.Forms.DataObject
-  $copiedAny = $false
-
-  $formats = @()
-  try {
-    $formats = $source.GetFormats($false)
-  } catch {
-    $formats = @()
-  }
-
-  foreach ($format in $formats) {
-    try {
-      $data = $source.GetData($format, $false)
-      if ($null -ne $data) {
-        $snapshot.SetData($format, $false, $data)
-        $copiedAny = $true
-      }
-    } catch {
-      # Some formats (delay-rendered or stream-backed) cannot be copied; skip them.
-    }
-  }
-
-  if (-not $copiedAny) {
-    return $null
-  }
-
-  return $snapshot
-}
-
-$previousClipboard = $null
-$hadClipboard = $false
-
-try {
-  $previousClipboard = Invoke-ClipboardAction -Operation 'snapshot' -Action {
-    Copy-ClipboardSnapshot
-  }
-  $hadClipboard = $previousClipboard -ne $null
-} catch {
-  $previousClipboard = $null
-  $hadClipboard = $false
-}
-
 # Place the transcription on the clipboard and confirm it actually landed before we
 # send the keystroke. Clipboard managers and antivirus hooks can swallow the first
 # write, so we verify and retry instead of blindly hoping the paste sees our text.
@@ -167,20 +114,24 @@ try {
   Send-Paste
   [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
   [Console]::Out.Flush()
-  # Give the target app time to read the clipboard before we restore the old contents.
+  # Give the target app time to read the clipboard before removing our temporary text.
   Start-Sleep -Milliseconds 180
 } finally {
   try {
-    if ($hadClipboard) {
-      Invoke-ClipboardAction -Operation 'restore-data' -Action {
-        [System.Windows.Forms.Clipboard]::SetDataObject($previousClipboard, $true)
-      } | Out-Null
-    } else {
-      Invoke-ClipboardAction -Operation 'clear' -Action {
+    Invoke-ClipboardAction -Operation 'clear-injected-text' -Action {
+      if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
         [System.Windows.Forms.Clipboard]::Clear()
-      } | Out-Null
-    }
+      }
+    } | Out-Null
   } catch {
-    # Best effort: clipboard restore failures should not break the paste operation.
+    try {
+      Invoke-ClipboardAction -Operation 'clear' -Action {
+        if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
+          [System.Windows.Forms.Clipboard]::Clear()
+        }
+      } | Out-Null
+    } catch {
+      # Best effort: clipboard cleanup failures should not break the paste operation.
+    }
   }
 }
