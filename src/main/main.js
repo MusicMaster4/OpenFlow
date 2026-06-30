@@ -2426,9 +2426,8 @@ function hasOngoingTranscription() {
 }
 
 // Paste operations are serialized: a transcription auto-paste and a manual
-// "paste last" shortcut must never run their clipboard swaps concurrently, or one
-// process restores the old clipboard while the other is mid-paste, which leaves the
-// target app pasting stale/empty text and breaks subsequent pastes too.
+// "paste last" shortcut must never run their temporary clipboard writes
+// concurrently, or one process can clear the clipboard while the other is mid-paste.
 let pasteChain = Promise.resolve();
 
 function insertTextIntoFocusedApp(text) {
@@ -2443,86 +2442,23 @@ function insertTextIntoFocusedApp(text) {
   return next;
 }
 
-// Snapshot every common clipboard format before we hijack the clipboard for a
-// paste, so non-text content (images, formatted text) survives the swap. Reading
-// only plain text — as the old code did — meant an image or rich-text clipboard
-// was wiped (readText() returns '' for those, so the restore branch cleared it).
-function captureClipboardSnapshot() {
-  let formats = [];
+// Remove only the temporary transcription we injected for paste. If the user or
+// another app has already changed the clipboard, leave that newer content intact.
+function clearInjectedClipboardText(text) {
   try {
-    formats = clipboard.availableFormats() || [];
-  } catch (_error) {
-    formats = [];
-  }
-
-  const snapshot = { wasEmpty: formats.length === 0, data: {} };
-
-  try {
-    const text = clipboard.readText();
-    if (text) {
-      snapshot.data.text = text;
-    }
-  } catch (_error) {
-    // ignore unreadable format
-  }
-  try {
-    const html = clipboard.readHTML();
-    if (html) {
-      snapshot.data.html = html;
-    }
-  } catch (_error) {
-    // ignore unreadable format
-  }
-  try {
-    const rtf = clipboard.readRTF();
-    if (rtf) {
-      snapshot.data.rtf = rtf;
-    }
-  } catch (_error) {
-    // ignore unreadable format
-  }
-  try {
-    const image = clipboard.readImage();
-    if (image && !image.isEmpty()) {
-      snapshot.data.image = image;
-    }
-  } catch (_error) {
-    // ignore unreadable format
-  }
-
-  return snapshot;
-}
-
-function restoreClipboardSnapshot(snapshot) {
-  if (!snapshot) {
-    return;
-  }
-
-  try {
-    if (snapshot.wasEmpty) {
-      clipboard.clear();
-      return;
-    }
-
-    const data = snapshot.data || {};
-    if (Object.keys(data).length > 0) {
-      clipboard.write(data);
-    } else {
-      // The previous clipboard held only formats we could not capture (e.g. file
-      // references). Clearing avoids leaving our injected text behind, which is the
-      // lesser of the two evils.
+    if (clipboard.readText() === String(text || '')) {
       clipboard.clear();
     }
   } catch (_error) {
-    // Best effort: a restore failure must never break the paste flow.
+    // Best effort: clipboard cleanup failures should not break the paste flow.
   }
 }
 
 function runTextInsertion(text) {
   return new Promise((resolve, reject) => {
     if (process.platform === 'darwin') {
-      const clipboardSnapshot = captureClipboardSnapshot();
-      clipboard.writeText(String(text || ''));
+      const pasteText = String(text || '');
+      clipboard.writeText(pasteText);
 
       const appleScript = [
         'tell application "System Events"',
@@ -2537,13 +2473,13 @@ function runTextInsertion(text) {
       });
 
       osascript.on('error', (error) => {
-        restoreClipboardSnapshot(clipboardSnapshot);
+        clearInjectedClipboardText(pasteText);
         reject(error);
       });
 
       osascript.on('close', (code) => {
         setTimeout(() => {
-          restoreClipboardSnapshot(clipboardSnapshot);
+          clearInjectedClipboardText(pasteText);
         }, 120);
 
         if (code === 0) {

@@ -77,14 +77,32 @@ function Invoke-ClipboardAction {
   throw "Failed to access the clipboard during '$Operation': $($lastError.Exception.Message)"
 }
 
+function Set-ClipboardTextForPaste {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Value
+  )
+
+  $dataObject = New-Object System.Windows.Forms.DataObject
+  $dataObject.SetText($Value, [System.Windows.Forms.TextDataFormat]::UnicodeText)
+  # Prevent this temporary paste payload from being captured by Windows clipboard
+  # history or cloud clipboard. It must be written in the same clipboard object as
+  # the text for Windows to treat the whole item as excluded.
+  $disabledFlag = [System.BitConverter]::GetBytes([uint32]0)
+  $dataObject.SetData('ExcludeClipboardContentFromMonitorProcessing', $false, [byte[]](1))
+  $dataObject.SetData('CanIncludeInClipboardHistory', $false, $disabledFlag)
+  $dataObject.SetData('CanUploadToCloudClipboard', $false, $disabledFlag)
+  [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+}
+
 # Place the transcription on the clipboard and confirm it actually landed before we
-# send the keystroke. Clipboard managers and antivirus hooks can swallow the first
-# write, so we verify and retry instead of blindly hoping the paste sees our text.
+# send the keystroke. The temporary clipboard item is marked so Windows should not
+# add it to clipboard history or sync it through cloud clipboard.
 $clipboardReady = $false
 for ($attempt = 0; $attempt -lt 6; $attempt++) {
   try {
     Invoke-ClipboardAction -Operation 'set-text' -Action {
-      [System.Windows.Forms.Clipboard]::SetText($Text)
+      Set-ClipboardTextForPaste -Value $Text
     } | Out-Null
     Start-Sleep -Milliseconds 60
 
