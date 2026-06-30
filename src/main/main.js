@@ -2443,10 +2443,85 @@ function insertTextIntoFocusedApp(text) {
   return next;
 }
 
+// Snapshot every common clipboard format before we hijack the clipboard for a
+// paste, so non-text content (images, formatted text) survives the swap. Reading
+// only plain text — as the old code did — meant an image or rich-text clipboard
+// was wiped (readText() returns '' for those, so the restore branch cleared it).
+function captureClipboardSnapshot() {
+  let formats = [];
+  try {
+    formats = clipboard.availableFormats() || [];
+  } catch (_error) {
+    formats = [];
+  }
+
+  const snapshot = { wasEmpty: formats.length === 0, data: {} };
+
+  try {
+    const text = clipboard.readText();
+    if (text) {
+      snapshot.data.text = text;
+    }
+  } catch (_error) {
+    // ignore unreadable format
+  }
+  try {
+    const html = clipboard.readHTML();
+    if (html) {
+      snapshot.data.html = html;
+    }
+  } catch (_error) {
+    // ignore unreadable format
+  }
+  try {
+    const rtf = clipboard.readRTF();
+    if (rtf) {
+      snapshot.data.rtf = rtf;
+    }
+  } catch (_error) {
+    // ignore unreadable format
+  }
+  try {
+    const image = clipboard.readImage();
+    if (image && !image.isEmpty()) {
+      snapshot.data.image = image;
+    }
+  } catch (_error) {
+    // ignore unreadable format
+  }
+
+  return snapshot;
+}
+
+function restoreClipboardSnapshot(snapshot) {
+  if (!snapshot) {
+    return;
+  }
+
+  try {
+    if (snapshot.wasEmpty) {
+      clipboard.clear();
+      return;
+    }
+
+    const data = snapshot.data || {};
+    if (Object.keys(data).length > 0) {
+      clipboard.write(data);
+    } else {
+      // The previous clipboard held only formats we could not capture (e.g. file
+      // references). Clearing avoids leaving our injected text behind, which is the
+      // lesser of the two evils.
+      clipboard.clear();
+    }
+  } catch (_error) {
+    // Best effort: a restore failure must never break the paste flow.
+  }
+}
+
 function runTextInsertion(text) {
   return new Promise((resolve, reject) => {
     if (process.platform === 'darwin') {
-      const previousClipboard = clipboard.readText();
+      const clipboardSnapshot = captureClipboardSnapshot();
       clipboard.writeText(String(text || ''));
 
       const appleScript = [
@@ -2462,17 +2537,13 @@ function runTextInsertion(text) {
       });
 
       osascript.on('error', (error) => {
-        clipboard.writeText(previousClipboard);
+        restoreClipboardSnapshot(clipboardSnapshot);
         reject(error);
       });
 
       osascript.on('close', (code) => {
         setTimeout(() => {
-          if (previousClipboard) {
-            clipboard.writeText(previousClipboard);
-          } else {
-            clipboard.clear();
-          }
+          restoreClipboardSnapshot(clipboardSnapshot);
         }, 120);
 
         if (code === 0) {
