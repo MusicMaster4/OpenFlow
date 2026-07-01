@@ -122,8 +122,9 @@ const TRANSLATIONS = {
     dictionarySourcesPlaceholder: 'One variation per line\nopen flow\nopenflow',
     dictionarySourcesHint: 'One variation per line — every line becomes the replacement.',
     dictionaryTarget: 'Replace with',
-    dictionaryTargetPlaceholder: 'Example: OpenFlow',
-    dictionaryTargetHint: 'The exact text inserted into your transcriptions.',
+    dictionaryTargetPlaceholder: 'Example: OpenFlow (leave empty to delete)',
+    dictionaryTargetHint: 'The exact text inserted into your transcriptions. Leave empty to remove the matched words.',
+    dictionaryDeleteLabel: '(removed)',
     dictionaryApplyTo: 'Apply to',
     activeLanguages: 'Active languages',
     cancelEditing: 'Cancel editing',
@@ -284,8 +285,9 @@ const TRANSLATIONS = {
     dictionarySourcesPlaceholder: 'Uma variação por linha\nopen flow\nopenflow',
     dictionarySourcesHint: 'Uma variação por linha — cada linha vira a substituição.',
     dictionaryTarget: 'Substituir por',
-    dictionaryTargetPlaceholder: 'Ex.: OpenFlow',
-    dictionaryTargetHint: 'O texto exato inserido nas suas transcrições.',
+    dictionaryTargetPlaceholder: 'Ex.: OpenFlow (deixe vazio para excluir)',
+    dictionaryTargetHint: 'O texto exato inserido nas suas transcrições. Deixe vazio para remover as palavras encontradas.',
+    dictionaryDeleteLabel: '(removido)',
     dictionaryApplyTo: 'Aplicar em',
     activeLanguages: 'Idiomas ativos',
     cancelEditing: 'Cancelar edição',
@@ -1284,7 +1286,9 @@ function renderDictionary(entries) {
           </div>
           <div class="dictionary-item__panel">
             <span class="dictionary-item__label">${esc(t('output'))}</span>
-            <strong class="dictionary-item__target">${esc(entry.target)}</strong>
+            <strong class="dictionary-item__target${entry.target ? '' : ' dictionary-item__target--deleted'}">${
+              entry.target ? esc(entry.target) : esc(t('dictionaryDeleteLabel'))
+            }</strong>
           </div>
           <div class="dictionary-item__meta">
             ${(entry.languages || []).map((language) => `<span class="dictionary-chip">${esc(capitalizeLanguageLabel(langName(language)))}</span>`).join('')}
@@ -2211,7 +2215,8 @@ function setupHandlers() {
     const fallbackLanguages = getDictionaryFallbackLanguages();
     const languages = selectedDictionaryLanguages(fallbackLanguages);
 
-    if (!sources.length || !target) {
+    // An empty target is allowed: the rule deletes the matched words from the output.
+    if (!sources.length) {
       return;
     }
 

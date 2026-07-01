@@ -833,6 +833,12 @@ h1, h2, h3 {
   overflow-wrap: anywhere;
 }
 
+.dictionary-item__target--deleted {
+  font-weight: 500;
+  font-style: italic;
+  opacity: 0.65;
+}
+
 .dictionary-item__meta {
   display: flex;
   flex-wrap: wrap;

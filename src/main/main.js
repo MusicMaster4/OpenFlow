@@ -592,7 +592,8 @@ function normalizeDictionaryEntry(entry) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (sources.length === 0 || !target) {
+  // An empty target is a valid rule: the matched source is deleted from the output.
+  if (sources.length === 0) {
     return null;
   }
 
@@ -647,9 +648,12 @@ function createDictionaryReplacementIndex(entries) {
   };
 
   for (const entry of Array.isArray(entries) ? entries : []) {
-    if (!entry || !Array.isArray(entry.sources) || !entry.target) {
+    if (!entry || !Array.isArray(entry.sources)) {
       continue;
     }
+
+    // An empty target means the matched source is deleted from the output.
+    const target = String(entry.target || '');
 
     for (const source of entry.sources) {
       const normalizedSource = String(source || '').trim();
@@ -660,7 +664,7 @@ function createDictionaryReplacementIndex(entries) {
       const compiledEntry = {
         source: normalizedSource,
         sourceLength: normalizedSource.length,
-        target: entry.target,
+        target,
         pattern: buildDictionaryPattern(normalizedSource),
       };
 
