@@ -4416,6 +4416,50 @@ function isMissingUpdateMetadataError(error) {
   return /(app-update\.yml|latest(?:-[a-z0-9_-]+)?(?:-mac)?\.yml)/i.test(message);
 }
 
+function getUpdateErrorStatusCode(error) {
+  const statusCode = Number(error && (error.statusCode || error.status));
+  if (Number.isFinite(statusCode) && statusCode >= 100 && statusCode <= 599) {
+    return statusCode;
+  }
+
+  const match = /^\s*(?:HttpError:\s*)?(\d{3})\b/.exec(String((error && error.message) || error || ''));
+  return match ? Number(match[1]) : null;
+}
+
+function isTransientUpdateServerError(error) {
+  const statusCode = getUpdateErrorStatusCode(error);
+  return statusCode === 429 || (statusCode !== null && statusCode >= 500);
+}
+
+function isUpdateNetworkError(error) {
+  return /ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION|ERR_NETWORK/i.test(
+    String((error && error.message) || error || ''),
+  );
+}
+
+function formatUpdateErrorMessage(error) {
+  const statusCode = getUpdateErrorStatusCode(error);
+  if (statusCode) {
+    return isTransientUpdateServerError(error)
+      ? `GitHub returned HTTP ${statusCode}. Please try again later.`
+      : `GitHub returned HTTP ${statusCode}.`;
+  }
+
+  if (isUpdateNetworkError(error)) {
+    return 'Could not reach GitHub. Check your internet connection and try again.';
+  }
+
+  // Failed HTTP requests can embed an entire HTML error page in the message.
+  const firstLine = String((error && error.message) || error || '')
+    .split(/\r?\n/, 1)[0]
+    .trim();
+  if (!firstLine) {
+    return 'Update error';
+  }
+
+  return firstLine.length > 200 ? `${firstLine.slice(0, 200)}…` : firstLine;
+}
+
 function getUpdateChannel() {
   if (process.platform === 'darwin' && (process.arch === 'arm64' || process.arch === 'x64')) {
     return `latest-${process.arch}`;
@@ -4617,8 +4661,8 @@ async function getLatestGithubReleaseVersion() {
   return release ? getGithubReleaseVersion(release) : null;
 }
 
-async function handleMissingUpdateMetadata(error) {
-  if (!isMissingUpdateMetadataError(error)) {
+async function handleUpdateCheckFallback(error) {
+  if (!isMissingUpdateMetadataError(error) && !isTransientUpdateServerError(error)) {
     return false;
   }
 
@@ -4645,6 +4689,18 @@ async function handleMissingUpdateMetadata(error) {
     downloadUrl: getGithubReleaseDownloadUrl(latestRelease),
   });
   return true;
+}
+
+async function reportUpdateError(error) {
+  try {
+    if (await handleUpdateCheckFallback(error)) {
+      return;
+    }
+  } catch (_fallbackError) {
+    // The GitHub API fallback failed too; fall through to the sanitized message.
+  }
+
+  setUpdateState({ status: 'error', message: formatUpdateErrorMessage(error) });
 }
 
 async function openUpdateDownloadTarget() {
@@ -4723,15 +4779,13 @@ function loadAutoUpdater() {
       }),
     );
     autoUpdater.on('error', (error) => {
-      handleMissingUpdateMetadata(error).catch(() =>
-        setUpdateState({ status: 'error', message: String((error && error.message) || error || 'Update error') }),
-      );
+      reportUpdateError(error);
     });
   } catch (error) {
     autoUpdater = null;
     setUpdateState({
       status: 'updater-unavailable',
-      message: String((error && error.message) || error),
+      message: formatUpdateErrorMessage(error),
       releaseUrl: getGithubReleasesUrl(),
       downloadUrl: null,
     });
@@ -4761,13 +4815,7 @@ ipcMain.handle('check-for-updates', async () => {
     setUpdateState({ status: 'checking', message: '' });
     await updater.checkForUpdates();
   } catch (error) {
-    try {
-      if (!(await handleMissingUpdateMetadata(error))) {
-        setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-      }
-    } catch (_fallbackError) {
-      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-    }
+    await reportUpdateError(error);
   }
 
   return getUpdateSnapshot();
@@ -4782,13 +4830,7 @@ ipcMain.handle('download-update', async () => {
     setUpdateState({ status: 'downloading', progress: 0, message: '' });
     await updater.downloadUpdate();
   } catch (error) {
-    try {
-      if (!(await handleMissingUpdateMetadata(error))) {
-        setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-      }
-    } catch (_fallbackError) {
-      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-    }
+    await reportUpdateError(error);
   }
 
   return getUpdateSnapshot();
@@ -4807,7 +4849,7 @@ ipcMain.handle('install-update', async () => {
       updater.quitAndInstall();
     } catch (error) {
       isQuitting = false;
-      setUpdateState({ status: 'error', message: String((error && error.message) || error) });
+      setUpdateState({ status: 'error', message: formatUpdateErrorMessage(error) });
     }
   });
 
@@ -4825,17 +4867,7 @@ function scheduleStartupUpdateCheck() {
   }
 
   setTimeout(() => {
-    updater
-      .checkForUpdates()
-      .catch(async (error) => {
-        try {
-          if (!(await handleMissingUpdateMetadata(error))) {
-            setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-          }
-        } catch (_fallbackError) {
-          setUpdateState({ status: 'error', message: String((error && error.message) || error) });
-        }
-      });
+    updater.checkForUpdates().catch((error) => reportUpdateError(error));
   }, 8000);
 }
 

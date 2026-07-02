@@ -1551,9 +1551,11 @@ function describeUpdate(update) {
     case 'unsupported':
       return { text: t('updateUnsupported'), action: 'check', busy: false, error: false };
     case 'error': {
-      const message = update.message || '';
+      const rawMessage = update.message || '';
+      // Keep the first line only: failed HTTP requests can carry a whole HTML page.
+      const message = rawMessage.split(/\r?\n/, 1)[0].trim().slice(0, 200);
       // A release can exist without the electron-updater metadata files.
-      if (/(app-update\.yml|latest(?:-[a-z0-9_-]+)?(?:-mac)?\.yml)/i.test(message)) {
+      if (/(app-update\.yml|latest(?:-[a-z0-9_-]+)?(?:-mac)?\.yml)/i.test(rawMessage)) {
         return {
           text: update.availableVersion
             ? template('updateMetadataUnavailableForVersion', { version: update.availableVersion })
