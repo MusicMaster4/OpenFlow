@@ -580,54 +580,55 @@
 
         <div class="dialog-window__body">
           <form class="dictionary-form" id="dictionary-form">
-            <p class="dictionary-form__intro" data-i18n="dictionaryFormIntro">
-              Create a rule: anything on the left is automatically rewritten to the text on the right.
-            </p>
+            <div class="dictionary-form__banner hidden" id="dictionary-editing-banner">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+              </svg>
+              <span data-i18n="editingRule">Editing rule</span>
+            </div>
 
             <div class="dictionary-form__flow">
-              <label class="form-field dictionary-form__from" for="dictionary-sources">
-                <span data-i18n="dictionarySources">When you say</span>
-                <textarea
-                  id="dictionary-sources"
-                  rows="3"
-                  data-i18n-placeholder="dictionarySourcesPlaceholder"
-                  placeholder="One variation per line&#10;open flow&#10;openflow"
-                ></textarea>
-                <p class="form-hint" data-i18n="dictionarySourcesHint">
-                  One variation per line — every line becomes the replacement.
-                </p>
-              </label>
+              <div class="form-field dictionary-form__from">
+                <label class="form-field__label" for="dictionary-source-input" data-i18n="dictionarySources">When you say</label>
+                <div class="chip-input" id="dictionary-source-box">
+                  <input
+                    id="dictionary-source-input"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="Type a variation and press Enter"
+                  />
+                </div>
+              </div>
 
               <div class="dictionary-form__arrow" aria-hidden="true">→</div>
 
-              <label class="form-field dictionary-form__to" for="dictionary-target">
-                <span data-i18n="dictionaryTarget">Replace with</span>
+              <div class="form-field dictionary-form__to">
+                <label class="form-field__label" for="dictionary-target" data-i18n="dictionaryTarget">Replace with</label>
                 <input
                   id="dictionary-target"
                   type="text"
                   autocomplete="off"
                   data-i18n-placeholder="dictionaryTargetPlaceholder"
-                  placeholder="Example: OpenFlow (leave empty to delete)"
+                  placeholder="Ex.: OpenFlow"
                 />
                 <p class="form-hint" data-i18n="dictionaryTargetHint">
-                  The exact text inserted into your transcriptions. Leave empty to remove the matched words.
+                  Leave empty to remove the words from the text.
                 </p>
-              </label>
+              </div>
             </div>
 
             <div class="dictionary-form__controls">
               <div class="dictionary-form__langs">
                 <span class="form-field__label" data-i18n="dictionaryApplyTo">Apply to</span>
-                <div class="language-grid language-grid--dictionary">
-                  <label class="language-option">
-                    <input id="dictionary-lang-pt" type="checkbox" value="pt" />
-                    <span id="dictionary-lang-pt-label">Portuguese</span>
-                  </label>
-                  <label class="language-option">
-                    <input id="dictionary-lang-en" type="checkbox" value="en" />
-                    <span id="dictionary-lang-en-label">English</span>
-                  </label>
-                </div>
+                <label class="lang-toggle" title="Portuguese">
+                  <input id="dictionary-lang-pt" type="checkbox" value="pt" />
+                  <span id="dictionary-lang-pt-label">PT</span>
+                </label>
+                <label class="lang-toggle" title="English">
+                  <input id="dictionary-lang-en" type="checkbox" value="en" />
+                  <span id="dictionary-lang-en-label">EN</span>
+                </label>
               </div>
 
               <div class="dictionary-form__actions">
@@ -642,26 +643,27 @@
           </form>
 
           <section class="dictionary-section">
-            <div class="section-head section-head--tight">
-              <div>
+            <div class="dictionary-toolbar">
+              <div class="dictionary-toolbar__title">
                 <h2 data-i18n="activeRules">Your rules</h2>
+                <span class="section-count" id="dictionary-count">0 rules</span>
               </div>
-              <span class="section-count" id="dictionary-count">0 rules</span>
+
+              <div class="dictionary-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input
+                  id="dictionary-search"
+                  type="search"
+                  placeholder="Search rules..."
+                  autocomplete="off"
+                />
+              </div>
             </div>
 
-            <label class="dictionary-search" for="dictionary-search">
-              <span class="dictionary-search__label">Search rules</span>
-              <input
-                id="dictionary-search"
-                type="search"
-                placeholder="Type a word from the input or output"
-                autocomplete="off"
-              />
-            </label>
-
-            <div class="dictionary-list" id="dictionary-list">
-              <div class="history-empty" data-i18n="noRules">No rules yet.</div>
-            </div>
+            <div class="dictionary-list" id="dictionary-list"></div>
           </section>
         </div>
       </section>

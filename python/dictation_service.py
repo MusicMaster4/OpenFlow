@@ -108,6 +108,9 @@ load_dotenv()
 
 DEFAULT_ALLOWED_LANGUAGES = ("en",)
 SUPPORTED_LANGUAGES = tuple(dict.fromkeys(_LANGUAGE_CODES))
+# Recordings with less voiced audio than this are discarded instead of transcribed.
+# Whisper reliably hallucinates phrases like "Thank you" on near-empty input.
+MIN_TRANSCRIPTION_AUDIO_MS = 750
 
 
 def _configure_stdio() -> None:
@@ -184,6 +187,7 @@ class DictationService:
         self.device_note = ""
         self.current_session_id: Optional[int] = None
         self.canceled_session_ids: set[int] = set()
+        self.recording_started_at = 0.0
 
     def emit(self, event_type: str, payload: Optional[dict] = None) -> None:
         print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
@@ -399,6 +403,7 @@ class DictationService:
         )
         self.stream.start()
         self.listening = True
+        self.recording_started_at = time.monotonic()
         self.emit(
             "state",
             {"phase": "listening", "listening": True, "session_id": self.current_session_id},
@@ -414,6 +419,25 @@ class DictationService:
 
         self._flush_open_segment()
         self.emit("partial", {"text": "", "session_id": session_id})
+
+        recording_ms = (
+            (time.monotonic() - self.recording_started_at) * 1000 if self.recording_started_at else 0.0
+        )
+        self.recording_started_at = 0.0
+        pending_audio_ms = round(
+            sum(len(segment) for segment in self.pending_segments) / self.sample_rate * 1000, 1
+        )
+        if pending_audio_ms < MIN_TRANSCRIPTION_AUDIO_MS and (
+            self.pending_segments or recording_ms < MIN_TRANSCRIPTION_AUDIO_MS
+        ):
+            # Misclick or near-silent capture: drop it instead of letting Whisper
+            # hallucinate. Long recordings with zero voiced audio stay silent as before.
+            self.pending_segments = []
+            self.emit(
+                "too-short",
+                {"audio_duration_ms": pending_audio_ms, "session_id": session_id},
+            )
+
         if self._queue_pending_transcription(session_id):
             self.emit("state", {"phase": "transcribing", "listening": False, "session_id": session_id})
         else:
@@ -427,6 +451,7 @@ class DictationService:
             self.canceled_session_ids.add(session_id)
 
         self.listening = False
+        self.recording_started_at = 0.0
         self._close_stream()
         self._reset_segment_state()
         self.pending_segments = []

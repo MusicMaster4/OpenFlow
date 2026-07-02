@@ -116,33 +116,28 @@ const TRANSLATIONS = {
     close: 'Close',
     noNotes: 'No notes.',
     dictionaryCopy: 'Replace terms automatically in the final text.',
-    dictionaryFormIntro:
-      'Create a rule: anything on the left is automatically rewritten to the text on the right.',
     dictionarySources: 'When you say',
-    dictionarySourcesPlaceholder: 'One variation per line\nopen flow\nopenflow',
-    dictionarySourcesHint: 'One variation per line — every line becomes the replacement.',
+    dictionarySourceInputPlaceholder: 'Type a variation and press Enter',
+    dictionarySourceInputMore: 'Add another variation',
     dictionaryTarget: 'Replace with',
-    dictionaryTargetPlaceholder: 'Example: OpenFlow (leave empty to delete)',
-    dictionaryTargetHint: 'The exact text inserted into your transcriptions. Leave empty to remove the matched words.',
+    dictionaryTargetPlaceholder: 'Ex.: OpenFlow',
+    dictionaryTargetHint: 'Leave empty to remove the words from the text.',
     dictionaryDeleteLabel: '(removed)',
     dictionaryApplyTo: 'Apply to',
     activeLanguages: 'Active languages',
+    editingRule: 'Editing rule',
     cancelEditing: 'Cancel editing',
     addRule: 'Add rule',
     saveRule: 'Save rule',
     activeRules: 'Your rules',
-    dictionaryRulesCopy: 'Replacement happens before the text enters history and the active field.',
-    showRules: 'Show rules',
-    hideRules: 'Hide rules',
-    dictionarySearchLabel: 'Search active rule',
-    dictionarySearchPlaceholder: 'Type a word from the input or output',
-    noRules: 'No rules yet.',
+    dictionarySearchLabel: 'Search rules',
+    dictionarySearchPlaceholder: 'Search rules...',
+    dictionaryEmptyTitle: 'No rules yet',
+    dictionaryEmptyCopy: 'Fix words the transcription keeps getting wrong — e.g. "open flow" becomes "OpenFlow".',
     noRuleResults: 'No rules found for this search.',
-    entries: 'Inputs',
-    output: 'Output',
     edit: 'Edit',
     remove: 'Remove',
-    fillRuleError: 'Fill in the inputs and the replacement.',
+    fillRuleError: 'Add at least one variation to replace.',
     copy: 'Copy',
     copied: 'Copied',
     loadingStatusTitle: 'Loading model',
@@ -279,33 +274,28 @@ const TRANSLATIONS = {
     close: 'Fechar',
     noNotes: 'Sem observações.',
     dictionaryCopy: 'Troque termos automaticamente no texto final.',
-    dictionaryFormIntro:
-      'Crie uma regra: tudo o que estiver à esquerda é reescrito automaticamente para o texto à direita.',
     dictionarySources: 'Quando você disser',
-    dictionarySourcesPlaceholder: 'Uma variação por linha\nopen flow\nopenflow',
-    dictionarySourcesHint: 'Uma variação por linha — cada linha vira a substituição.',
+    dictionarySourceInputPlaceholder: 'Digite uma variação e aperte Enter',
+    dictionarySourceInputMore: 'Adicionar outra variação',
     dictionaryTarget: 'Substituir por',
-    dictionaryTargetPlaceholder: 'Ex.: OpenFlow (deixe vazio para excluir)',
-    dictionaryTargetHint: 'O texto exato inserido nas suas transcrições. Deixe vazio para remover as palavras encontradas.',
+    dictionaryTargetPlaceholder: 'Ex.: OpenFlow',
+    dictionaryTargetHint: 'Deixe vazio para remover as palavras do texto.',
     dictionaryDeleteLabel: '(removido)',
     dictionaryApplyTo: 'Aplicar em',
     activeLanguages: 'Idiomas ativos',
+    editingRule: 'Editando regra',
     cancelEditing: 'Cancelar edição',
     addRule: 'Adicionar regra',
     saveRule: 'Salvar regra',
     activeRules: 'Suas regras',
-    dictionaryRulesCopy: 'A substituição acontece antes do texto entrar no histórico e no campo ativo.',
-    showRules: 'Mostrar regras',
-    hideRules: 'Ocultar regras',
-    dictionarySearchLabel: 'Pesquisar regra ativa',
-    dictionarySearchPlaceholder: 'Digite uma palavra da entrada ou da saída',
-    noRules: 'Nenhuma regra cadastrada.',
+    dictionarySearchLabel: 'Buscar regras',
+    dictionarySearchPlaceholder: 'Buscar regras...',
+    dictionaryEmptyTitle: 'Nenhuma regra ainda',
+    dictionaryEmptyCopy: 'Corrija palavras que a transcrição erra — ex.: "open flow" vira "OpenFlow".',
     noRuleResults: 'Nenhuma regra encontrada para essa busca.',
-    entries: 'Entradas',
-    output: 'Saída',
     edit: 'Editar',
     remove: 'Remover',
-    fillRuleError: 'Preencha as entradas e a substituição.',
+    fillRuleError: 'Adicione pelo menos uma variação para substituir.',
     copy: 'Copiar',
     copied: 'Copiado',
     loadingStatusTitle: 'Carregando o modelo',
@@ -636,7 +626,9 @@ const els = {
   dictionaryWindow: document.getElementById('dictionary-window'),
   dictionaryBackdrop: document.getElementById('dictionary-backdrop'),
   dictionaryForm: document.getElementById('dictionary-form'),
-  dictionarySources: document.getElementById('dictionary-sources'),
+  dictionarySourceBox: document.getElementById('dictionary-source-box'),
+  dictionarySourceInput: document.getElementById('dictionary-source-input'),
+  dictionaryEditingBanner: document.getElementById('dictionary-editing-banner'),
   dictionaryTarget: document.getElementById('dictionary-target'),
   dictionaryLangPt: document.getElementById('dictionary-lang-pt'),
   dictionaryLangEn: document.getElementById('dictionary-lang-en'),
@@ -698,6 +690,7 @@ let dictionaryOpen = false;
 let dictionaryCloseTimer = null;
 let detectionLanguagesExpanded = false;
 let editingDictionaryRuleId = null;
+let dictionarySourceChips = [];
 let toastHideTimer = null;
 let dictionaryFilter = '';
 let lastUpdate = { status: 'idle', version: null, availableVersion: null, progress: 0, message: '' };
@@ -1078,14 +1071,18 @@ function applyTranslations() {
     element.setAttribute('placeholder', t(element.dataset.i18nPlaceholder));
   }
 
-  els.dictionaryLangPtLabel.textContent = capitalizeLanguageLabel(langName('pt'));
-  els.dictionaryLangEnLabel.textContent = capitalizeLanguageLabel(langName('en'));
+  els.dictionaryLangPtLabel.textContent = 'PT';
+  els.dictionaryLangEnLabel.textContent = 'EN';
+  const ptLanguageName = capitalizeLanguageLabel(langName('pt'));
+  const enLanguageName = capitalizeLanguageLabel(langName('en'));
+  els.dictionaryLangPt.setAttribute('aria-label', ptLanguageName);
+  els.dictionaryLangEn.setAttribute('aria-label', enLanguageName);
+  els.dictionaryLangPt.closest('.lang-toggle')?.setAttribute('title', ptLanguageName);
+  els.dictionaryLangEn.closest('.lang-toggle')?.setAttribute('title', enLanguageName);
   updateDictionaryFormMode();
-  const dictionarySearchLabel = els.dictionarySearch.previousElementSibling;
-  if (dictionarySearchLabel) {
-    dictionarySearchLabel.textContent = t('dictionarySearchLabel');
-  }
+  renderDictionarySourceChips();
   els.dictionarySearch.setAttribute('placeholder', t('dictionarySearchPlaceholder'));
+  els.dictionarySearch.setAttribute('aria-label', t('dictionarySearchLabel'));
   updateHistoryCopy();
   updateHistorySettingsCopy();
   renderUpdateState();
@@ -1229,11 +1226,21 @@ function renderHistory(history, total) {
     .join('');
 }
 
+const DICTIONARY_ICONS = {
+  pencil:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+  trash:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  book:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>',
+};
+
 function renderDictionary(entries) {
   const list = Array.isArray(entries) ? entries : [];
   const signature = [
     locale(),
     dictionaryFilter.trim(),
+    editingDictionaryRuleId || '',
     list.length,
     list
       .map(
@@ -1265,7 +1272,13 @@ function renderDictionary(entries) {
   }
 
   if (list.length === 0) {
-    els.dictionaryList.innerHTML = `<div class="history-empty">${esc(t('noRules'))}</div>`;
+    els.dictionaryList.innerHTML = `
+      <div class="dictionary-empty">
+        ${DICTIONARY_ICONS.book}
+        <strong>${esc(t('dictionaryEmptyTitle'))}</strong>
+        <p>${esc(t('dictionaryEmptyCopy'))}</p>
+      </div>
+    `;
     return;
   }
 
@@ -1276,27 +1289,27 @@ function renderDictionary(entries) {
 
   els.dictionaryList.innerHTML = filteredList
     .map((entry) => `
-      <article class="dictionary-item">
-        <div class="dictionary-item__content">
-          <div class="dictionary-item__panel">
-            <span class="dictionary-item__label">${esc(t('entries'))}</span>
-            <div class="dictionary-chip-list">
-              ${(entry.sources || []).map((source) => `<span class="dictionary-source-chip">${esc(source)}</span>`).join('')}
-            </div>
+      <article class="dictionary-item${entry.id === editingDictionaryRuleId ? ' dictionary-item--editing' : ''}" data-id="${esc(entry.id)}">
+        <div class="dictionary-item__rule">
+          <div class="dictionary-item__sources">
+            ${(entry.sources || []).map((source) => `<span class="dictionary-source-chip">${esc(source)}</span>`).join('')}
           </div>
-          <div class="dictionary-item__panel">
-            <span class="dictionary-item__label">${esc(t('output'))}</span>
-            <strong class="dictionary-item__target${entry.target ? '' : ' dictionary-item__target--deleted'}">${
-              entry.target ? esc(entry.target) : esc(t('dictionaryDeleteLabel'))
-            }</strong>
-          </div>
-          <div class="dictionary-item__meta">
-            ${(entry.languages || []).map((language) => `<span class="dictionary-chip">${esc(capitalizeLanguageLabel(langName(language)))}</span>`).join('')}
-          </div>
+          <span class="dictionary-item__arrow" aria-hidden="true">→</span>
+          <span class="dictionary-item__target${entry.target ? '' : ' dictionary-item__target--deleted'}">${
+            entry.target ? esc(entry.target) : esc(t('dictionaryDeleteLabel'))
+          }</span>
+        </div>
+        <div class="dictionary-item__badges">
+          ${(entry.languages || [])
+            .map(
+              (language) =>
+                `<span class="dictionary-badge" title="${esc(capitalizeLanguageLabel(langName(language)))}">${esc(String(language).toUpperCase())}</span>`,
+            )
+            .join('')}
         </div>
         <div class="dictionary-item__actions">
-          <button class="secondary-button" data-dictionary-edit="${esc(entry.id)}" type="button">${esc(t('edit'))}</button>
-          <button class="copy-button" data-dictionary-remove="${esc(entry.id)}" type="button">${esc(t('remove'))}</button>
+          <button class="icon-button" data-dictionary-edit="${esc(entry.id)}" type="button" title="${esc(t('edit'))}" aria-label="${esc(t('edit'))}">${DICTIONARY_ICONS.pencil}</button>
+          <button class="icon-button icon-button--danger" data-dictionary-remove="${esc(entry.id)}" type="button" title="${esc(t('remove'))}" aria-label="${esc(t('remove'))}">${DICTIONARY_ICONS.trash}</button>
         </div>
       </article>
     `)
@@ -1307,6 +1320,8 @@ function updateDictionaryFormMode() {
   const editing = Boolean(editingDictionaryRuleId);
   els.submitDictionaryRule.textContent = editing ? t('saveRule') : t('addRule');
   els.cancelDictionaryEdit.classList.toggle('hidden', !editing);
+  els.dictionaryEditingBanner.classList.toggle('hidden', !editing);
+  els.dictionaryForm.classList.toggle('dictionary-form--editing', editing);
 }
 
 function renderModels(state) {
@@ -1897,7 +1912,7 @@ function setDictionaryOpen(open) {
       els.dictionaryWindow.classList.add('is-visible');
       els.dictionaryBackdrop.classList.add('is-visible');
       els.dictionaryWindow.setAttribute('aria-hidden', 'false');
-      els.dictionarySources.focus();
+      els.dictionarySourceInput.focus();
     });
     return;
   }
@@ -1912,26 +1927,73 @@ function setDictionaryOpen(open) {
   }, SETTINGS_CLOSE_DELAY_MS);
 }
 
-function parseDictionarySources(value) {
-  const nextSources = [];
-  const seenSources = new Set();
-  for (const item of String(value ?? '')
-    .split(/\r\n|\n|\r/)
-    .filter((part) => part.length > 0)) {
-    const key = item.toLocaleLowerCase(locale());
-    if (seenSources.has(key)) continue;
-    seenSources.add(key);
-    nextSources.push(item);
+function renderDictionarySourceChips() {
+  for (const chip of els.dictionarySourceBox.querySelectorAll('.chip-input__chip')) {
+    chip.remove();
   }
-  return nextSources;
+
+  const fragment = document.createDocumentFragment();
+  dictionarySourceChips.forEach((source, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip-input__chip';
+
+    const text = document.createElement('span');
+    text.className = 'chip-input__text';
+    text.textContent = source;
+    text.title = source;
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'chip-input__remove';
+    removeButton.dataset.chipIndex = String(index);
+    removeButton.setAttribute('aria-label', `${t('remove')}: ${source}`);
+    removeButton.innerHTML = '&times;';
+
+    chip.append(text, removeButton);
+    fragment.append(chip);
+  });
+  els.dictionarySourceBox.insertBefore(fragment, els.dictionarySourceInput);
+
+  els.dictionarySourceInput.setAttribute(
+    'placeholder',
+    t(dictionarySourceChips.length ? 'dictionarySourceInputMore' : 'dictionarySourceInputPlaceholder'),
+  );
+}
+
+function commitDictionarySourceInput() {
+  const parts = String(els.dictionarySourceInput.value || '')
+    .split(/\r\n|\n|\r|,/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  els.dictionarySourceInput.value = '';
+  // Skipping the re-render when there is nothing to add keeps a pending
+  // chip-remove click alive (blur fires before click on the × button).
+  if (!parts.length) {
+    return;
+  }
+
+  const seen = new Set(dictionarySourceChips.map((source) => source.toLocaleLowerCase(locale())));
+  for (const part of parts) {
+    const key = part.toLocaleLowerCase(locale());
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dictionarySourceChips.push(part);
+  }
+  renderDictionarySourceChips();
 }
 
 function resetDictionaryForm(fallbackLanguages) {
   els.dictionaryForm.reset();
+  dictionarySourceChips = [];
   editingDictionaryRuleId = null;
   els.dictionaryLangPt.checked = fallbackLanguages.includes('pt');
   els.dictionaryLangEn.checked = fallbackLanguages.includes('en');
+  renderDictionarySourceChips();
   applyTranslations();
+  updateDictionaryFormMode();
+  if (lastState) {
+    renderDictionary(lastState.dictionaryEntries);
+  }
 }
 
 function selectedDictionaryLanguages(fallbackLanguages) {
@@ -2131,6 +2193,48 @@ function setupHandlers() {
   els.openDictionary.addEventListener('click', () => setDictionaryOpen(true));
   els.closeDictionary.addEventListener('click', () => setDictionaryOpen(false));
   els.dictionaryBackdrop.addEventListener('click', () => setDictionaryOpen(false));
+
+  els.dictionarySourceBox.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('[data-chip-index]');
+    if (removeButton) {
+      dictionarySourceChips.splice(Number(removeButton.dataset.chipIndex), 1);
+      renderDictionarySourceChips();
+      els.dictionarySourceInput.focus();
+      return;
+    }
+    if (event.target === els.dictionarySourceBox) {
+      els.dictionarySourceInput.focus();
+    }
+  });
+
+  els.dictionarySourceInput.addEventListener('keydown', (event) => {
+    if (event.isComposing) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      commitDictionarySourceInput();
+      return;
+    }
+    if (event.key === 'Backspace' && !els.dictionarySourceInput.value && dictionarySourceChips.length) {
+      dictionarySourceChips.pop();
+      renderDictionarySourceChips();
+    }
+  });
+
+  els.dictionarySourceInput.addEventListener('blur', () => {
+    commitDictionarySourceInput();
+  });
+
+  els.dictionarySourceInput.addEventListener('paste', (event) => {
+    const text = event.clipboardData?.getData('text') || '';
+    if (!/[\n\r,]/.test(text)) {
+      return;
+    }
+    event.preventDefault();
+    els.dictionarySourceInput.value = `${els.dictionarySourceInput.value}${text}`;
+    commitDictionarySourceInput();
+  });
   els.dictionarySearch.addEventListener('input', () => {
     dictionaryFilter = els.dictionarySearch.value || '';
     if (lastState) renderDictionary(lastState.dictionaryEntries);
@@ -2209,16 +2313,21 @@ function setupHandlers() {
 
   els.dictionaryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const sources = parseDictionarySources(els.dictionarySources.value);
+    commitDictionarySourceInput();
+    const sources = [...dictionarySourceChips];
     const target = els.dictionaryTarget.value ?? '';
     const fallbackLanguages = getDictionaryFallbackLanguages();
     const languages = selectedDictionaryLanguages(fallbackLanguages);
 
     // An empty target is allowed: the rule deletes the matched words from the output.
     if (!sources.length) {
+      showToast(t('fillRuleError'));
+      els.dictionarySourceInput.focus();
       return;
     }
 
+    const wasEditing = Boolean(editingDictionaryRuleId);
+    const previousIds = new Set((lastState?.dictionaryEntries || []).map((entry) => entry.id));
     const currentEntries = [...(lastState?.dictionaryEntries || [])];
     const nextEntry = { id: editingDictionaryRuleId || undefined, sources, target, languages };
     const nextEntries = editingDictionaryRuleId
@@ -2227,7 +2336,16 @@ function setupHandlers() {
 
     renderState(await window.flowLocal.updateSettings({ dictionaryEntries: nextEntries }));
     resetDictionaryForm(languages);
-    els.dictionarySources.focus();
+    els.dictionarySourceInput.focus();
+
+    if (!wasEditing) {
+      const added = (lastState?.dictionaryEntries || []).find((entry) => !previousIds.has(entry.id));
+      const row = added ? els.dictionaryList.querySelector(`[data-id="${CSS.escape(added.id)}"]`) : null;
+      if (row) {
+        row.classList.add('dictionary-item--new');
+        row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
   });
 
   els.dictionaryList.addEventListener('click', async (event) => {
@@ -2236,12 +2354,17 @@ function setupHandlers() {
       const entry = (lastState?.dictionaryEntries || []).find((item) => item.id === editButton.getAttribute('data-dictionary-edit'));
       if (!entry) return;
       editingDictionaryRuleId = entry.id;
-      els.dictionarySources.value = (entry.sources || []).join('\n');
+      dictionarySourceChips = [...(entry.sources || [])];
+      els.dictionarySourceInput.value = '';
       els.dictionaryTarget.value = entry.target ?? '';
       els.dictionaryLangPt.checked = (entry.languages || []).includes('pt');
       els.dictionaryLangEn.checked = (entry.languages || []).includes('en');
+      renderDictionarySourceChips();
       applyTranslations();
-      els.dictionarySources.focus();
+      updateDictionaryFormMode();
+      renderDictionary(lastState?.dictionaryEntries);
+      els.dictionaryWindow.querySelector('.dialog-window__body')?.scrollTo({ top: 0, behavior: 'smooth' });
+      els.dictionarySourceInput.focus({ preventScroll: true });
       return;
     }
 
@@ -2268,6 +2391,10 @@ function setupHandlers() {
     // While recording a shortcut, Esc is handled by the capture listener (it cancels
     // recording) and never reaches here because that listener stops propagation.
     if (dictionaryOpen) {
+      if (editingDictionaryRuleId) {
+        resetDictionaryForm(getDictionaryFallbackLanguages());
+        return;
+      }
       setDictionaryOpen(false);
       return;
     }

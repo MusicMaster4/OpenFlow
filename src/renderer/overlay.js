@@ -6,6 +6,8 @@ const overlayEls = {
   loader: document.getElementById('overlay-loader'),
   readySequence: document.getElementById('overlay-ready-sequence'),
   readyLabel: document.getElementById('overlay-ready-label'),
+  tooShort: document.getElementById('overlay-too-short'),
+  tooShortLabel: document.getElementById('overlay-too-short-label'),
   glyph: document.getElementById('overlay-glyph'),
 };
 
@@ -53,6 +55,26 @@ const overlayReadyLabels = {
   hi: 'तैयार',
   tr: 'HAZIR',
 };
+
+const overlayTooShortLabels = {
+  en: 'TOO SHORT',
+  'pt-BR': 'MUITO CURTO',
+  es: 'MUY CORTO',
+  fr: 'TROP COURT',
+  de: 'ZU KURZ',
+  it: 'TROPPO BREVE',
+  nl: 'TE KORT',
+  el: 'POLY MIKRO',
+  ru: 'KOROTKO',
+  'zh-CN': '太短',
+  ja: '短すぎ',
+  ko: '너무 짧음',
+  ar: 'قصير جدا',
+  hi: 'बहुत छोटा',
+  tr: 'COK KISA',
+};
+
+const TOO_SHORT_FEEDBACK_MS = 1600;
 
 const feedbackSounds = {
   loaded: new Audio('../assets/audio/loaded.mp3'),
@@ -184,7 +206,12 @@ function applyOverlayStyle(mode, phase) {
   const root = document.documentElement;
   root.style.setProperty('--overlay-bg-opacity', overlayBgOpacity.toFixed(3));
 
-  const expanded = mode === 'recording' || mode === 'loading' || phase === 'transcribing' || activeFeedback === 'ready';
+  const expanded =
+    mode === 'recording' ||
+    mode === 'loading' ||
+    phase === 'transcribing' ||
+    activeFeedback === 'ready' ||
+    activeFeedback === 'too-short';
   const effectiveScale = overlayDynamicSize && !expanded ? overlayScale * 0.5 : overlayScale;
   root.style.setProperty('--overlay-scale', effectiveScale.toFixed(3));
 }
@@ -220,6 +247,7 @@ function renderOverlay(state) {
   overlayEls.wave.classList.toggle('hidden', mode !== 'recording');
   overlayEls.loader.classList.toggle('hidden', mode !== 'loading');
   overlayEls.readySequence.classList.toggle('hidden', activeFeedback !== 'ready');
+  overlayEls.tooShort.classList.toggle('hidden', activeFeedback !== 'too-short');
   overlayEls.glyph.classList.toggle('hidden', mode === 'recording' || mode === 'loading');
   overlayEls.badge.classList.toggle('hidden', !handsFree);
   overlayEls.badge.setAttribute('aria-hidden', handsFree ? 'false' : 'true');
@@ -351,6 +379,16 @@ function showReadyFeedback(soundKey) {
   }, 1100);
 }
 
+function showTooShortFeedback() {
+  clearActiveFeedback();
+  activeFeedback = 'too-short';
+  renderOverlay(currentOverlayState);
+  feedbackTimer = window.setTimeout(() => {
+    clearActiveFeedback();
+    renderOverlay(currentOverlayState);
+  }, TOO_SHORT_FEEDBACK_MS);
+}
+
 function applyWaveLevel(level) {
   const clampedLevel = Math.max(0, Math.min(1, Number(level) || 0));
   const visualLevel = Math.min(1, clampedLevel * 2);
@@ -465,6 +503,9 @@ function handleFeedback(feedback) {
     case 'loaded-ready':
       showReadyFeedback(feedback.payload?.sound || 'loaded');
       break;
+    case 'too-short':
+      showTooShortFeedback();
+      break;
     case 'play-sound':
       queueSound(feedback.payload?.sound, {
         interrupt: Boolean(feedback.payload?.interrupt),
@@ -486,6 +527,8 @@ function initTheme() {
     document.documentElement.lang = savedLanguage;
     document.documentElement.dir = savedLanguage === 'ar' ? 'rtl' : 'ltr';
     overlayEls.readyLabel.textContent = overlayReadyLabels[savedLanguage] || overlayReadyLabels.en;
+    overlayEls.tooShortLabel.textContent =
+      overlayTooShortLabels[savedLanguage] || overlayTooShortLabels.en;
   };
   syncTheme();
   window.addEventListener('storage', syncTheme);

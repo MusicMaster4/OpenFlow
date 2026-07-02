@@ -240,6 +240,7 @@ const MAIN_TRANSLATIONS = {
     openRouterKeyCleared: 'OpenRouter API key removed.',
     cloudRetrySaved: 'Cloud transcription failed. The recording was saved so you can retry.',
     cloudRetrySucceeded: 'Saved recording transcribed.',
+    tooShortNotice: 'Recording too short. Nothing was transcribed.',
     trayOpenApp: 'Open app',
     trayHideApp: 'Hide window',
     trayQuit: 'Quit',
@@ -279,6 +280,7 @@ const MAIN_TRANSLATIONS = {
     openRouterKeyCleared: 'Chave da OpenRouter removida.',
     cloudRetrySaved: 'A transcricao na nuvem falhou. A gravacao foi salva para tentar de novo.',
     cloudRetrySucceeded: 'Gravacao salva transcrita.',
+    tooShortNotice: 'Gravacao muito curta. Nada foi transcrito.',
     trayOpenApp: 'Abrir OpenFlow',
     trayHideApp: 'Ocultar janela',
     trayQuit: 'Fechar',
@@ -3350,6 +3352,23 @@ async function handleServiceEvent(event) {
       break;
     case 'audio':
       await handleCloudAudioPayload(payload, sessionId);
+      break;
+    case 'too-short':
+      if (!isCurrentDictationSession(sessionId)) {
+        break;
+      }
+      setOverlayAudioLevel(0);
+      // Settle the app state before the overlay feedback lands so the pill is already
+      // idle when the "too short" label plays (a recording-mode render clears feedback).
+      setState({
+        listening: false,
+        partial: '',
+        phase: 'idle',
+        notice: translateMain('tooShortNotice'),
+      });
+      if (state.showOverlayBar) {
+        sendOverlayFeedback('too-short');
+      }
       break;
     case 'final': {
       if (!isCurrentDictationSession(sessionId)) {

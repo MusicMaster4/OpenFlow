@@ -221,6 +221,46 @@ html, body {
   animation: ready-idle-enter 0.28s ease-out 0.52s forwards;
 }
 
+/* Too-short recording feedback: same monospace-caps treatment as the READY label,
+   but tighter tracking and a smaller size so longer translations (e.g. "TROPPO
+   BREVE") still fit inside the 96px pill. The pill itself does a quick side-to-side
+   shake — the universal "nope" gesture — so the rejection reads at a glance. */
+.overlay-too-short {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.overlay-too-short-label {
+  color: var(--overlay-ready-text);
+  font-size: 8px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.14em;
+  text-indent: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.overlay-shell[data-feedback='too-short'] .overlay-too-short-label {
+  animation: too-short-label 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* The window is exactly pill-sized, so a pure translateX would clip the rounded ends
+   at the window edges. A slight scale-down during the shake keeps it fully visible. */
+.overlay-shell[data-feedback='too-short'] .overlay-pill {
+  animation: too-short-shake 0.45s ease-in-out;
+}
+
+.overlay-shell[data-feedback='too-short'] .overlay-glyph {
+  display: none !important;
+}
+
 /* Error state */
 .overlay-shell[data-mode='error'] .overlay-glyph {
   background: var(--overlay-wave);
@@ -263,6 +303,47 @@ html, body {
   100% {
     opacity: 0;
     transform: translateY(-7px) scale(0.98);
+  }
+}
+
+@keyframes too-short-shake {
+  0%,
+  100% {
+    transform: translateX(0) scale(1);
+  }
+  12% {
+    transform: translateX(-2px) scale(0.95);
+  }
+  30% {
+    transform: translateX(2px) scale(0.95);
+  }
+  48% {
+    transform: translateX(-2px) scale(0.95);
+  }
+  66% {
+    transform: translateX(2px) scale(0.96);
+  }
+  84% {
+    transform: translateX(-1px) scale(0.98);
+  }
+}
+
+@keyframes too-short-label {
+  0% {
+    opacity: 0;
+    transform: translateY(5px) scale(0.92);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
   }
 }
 
