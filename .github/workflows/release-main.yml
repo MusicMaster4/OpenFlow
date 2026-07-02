@@ -290,7 +290,7 @@ jobs:
           if-no-files-found: error
 
   create-release:
-    name: Create draft release
+    name: Publish release
     needs:
       - validate-version
       - build-windows
@@ -306,7 +306,7 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Create draft release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -327,7 +327,7 @@ jobs:
           fi
 
           gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --draft \
+            --latest \
             --target "$GITHUB_SHA" \
             --title "OpenFlow $RELEASE_VERSION" \
-            --notes "Draft release generated automatically after successful Windows and macOS builds for commit $GITHUB_SHA."
+            --notes "Release published automatically after successful Windows and macOS builds for commit $GITHUB_SHA."

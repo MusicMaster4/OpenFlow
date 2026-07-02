@@ -157,7 +157,7 @@ Expected outputs:
 On a normal branch push the platform workflows only upload CI artifacts. They do not run
 on version tags and do not create GitHub releases. On a push to `main`, the release
 workflow validates that the app version changed, validates the `x.x.xxx` version format,
-builds Windows and macOS, and only then creates a draft GitHub release with the generated
+builds Windows and macOS, and only then publishes a GitHub release with the generated
 installers and update metadata. The release workflow and each release job are explicitly
 guarded to run only for push events on `main`.
 
@@ -172,10 +172,10 @@ Release flow:
 1. Bump `version` in `package.json` and `package-lock.json` (see [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md)).
 2. Commit and push to `main`.
 3. The release workflow builds Windows and macOS first.
-4. If every build succeeds, the workflow creates tag `v<version>` and a **draft** GitHub
+4. If every build succeeds, the workflow creates tag `v<version>` and publishes a GitHub
    release containing the generated installers and update metadata.
-5. Review the draft and press **Publish release**. Once it is published, installed apps
-   detect it: OpenFlow checks on startup and from **Settings → Software update**, where the
+5. Once the workflow publishes the release, installed apps detect it: OpenFlow checks on
+   startup and from **Settings → Software update**, where the
    user can download and then restart to install. `electron-updater` automatically selects
    the correct OS asset. On macOS, OpenFlow uses architecture-specific update channels:
    `latest-x64-mac.yml` for Intel and `latest-arm64-mac.yml` for Apple Silicon.
