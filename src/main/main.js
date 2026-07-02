@@ -2446,15 +2446,55 @@ function insertTextIntoFocusedApp(text) {
   return next;
 }
 
-// Remove only the temporary transcription we injected for paste. If the user or
-// another app has already changed the clipboard, leave that newer content intact.
-function clearInjectedClipboardText(text) {
+// Best-effort capture of the user's current clipboard so it can be restored after
+// the temporary transcription paste. Text, HTML, RTF and images cover the common
+// cases; anything else is treated as empty.
+function captureClipboardSnapshot() {
+  const snapshot = {};
+
   try {
-    if (clipboard.readText() === String(text || '')) {
+    const text = clipboard.readText();
+    if (text) {
+      snapshot.text = text;
+    }
+
+    const html = clipboard.readHTML();
+    if (html) {
+      snapshot.html = html;
+    }
+
+    const rtf = clipboard.readRTF();
+    if (rtf) {
+      snapshot.rtf = rtf;
+    }
+
+    const image = clipboard.readImage();
+    if (image && !image.isEmpty()) {
+      snapshot.image = image;
+    }
+  } catch (_error) {
+    // Best effort: an unreadable clipboard just means there is nothing to restore.
+  }
+
+  return snapshot;
+}
+
+// Put the user's previous clipboard contents back once the temporary transcription
+// has been pasted. If the user or another app has already changed the clipboard,
+// leave that newer content intact.
+function restorePreviousClipboard(injectedText, snapshot) {
+  try {
+    if (clipboard.readText() !== String(injectedText || '')) {
+      return;
+    }
+
+    if (snapshot && Object.keys(snapshot).length > 0) {
+      clipboard.write(snapshot);
+    } else {
       clipboard.clear();
     }
   } catch (_error) {
-    // Best effort: clipboard cleanup failures should not break the paste flow.
+    // Best effort: clipboard restore failures should not break the paste flow.
   }
 }
 
@@ -2462,6 +2502,7 @@ function runTextInsertion(text) {
   return new Promise((resolve, reject) => {
     if (process.platform === 'darwin') {
       const pasteText = String(text || '');
+      const previousClipboard = captureClipboardSnapshot();
       clipboard.writeText(pasteText);
 
       const appleScript = [
@@ -2477,13 +2518,13 @@ function runTextInsertion(text) {
       });
 
       osascript.on('error', (error) => {
-        clearInjectedClipboardText(pasteText);
+        restorePreviousClipboard(pasteText, previousClipboard);
         reject(error);
       });
 
       osascript.on('close', (code) => {
         setTimeout(() => {
-          clearInjectedClipboardText(pasteText);
+          restorePreviousClipboard(pasteText, previousClipboard);
         }, 120);
 
         if (code === 0) {

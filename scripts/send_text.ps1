@@ -14,6 +14,7 @@ if ([string]::IsNullOrEmpty($Text)) {
 }
 
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 # Inject the paste keystroke at a low level. keybd_event is far more reliable than
 # SendKeys across applications (especially Chromium/Electron targets and apps that
@@ -77,6 +78,57 @@ function Invoke-ClipboardAction {
   throw "Failed to access the clipboard during '$Operation': $($lastError.Exception.Message)"
 }
 
+function Get-ClipboardSnapshot {
+  # Best-effort capture of what the user currently has on the clipboard so it can
+  # be put back once the temporary paste payload has been consumed. Text, files
+  # and images cover the common cases; anything else is treated as empty.
+  try {
+    return Invoke-ClipboardAction -Operation 'snapshot' -Action {
+      $captured = @{}
+      if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+        $captured['Text'] = [System.Windows.Forms.Clipboard]::GetText([System.Windows.Forms.TextDataFormat]::UnicodeText)
+      }
+      if ([System.Windows.Forms.Clipboard]::ContainsFileDropList()) {
+        $captured['Files'] = [System.Windows.Forms.Clipboard]::GetFileDropList()
+      }
+      if ([System.Windows.Forms.Clipboard]::ContainsImage()) {
+        $captured['Image'] = [System.Windows.Forms.Clipboard]::GetImage()
+      }
+      $captured
+    }
+  } catch {
+    return @{}
+  }
+}
+
+function Restore-ClipboardSnapshot {
+  param($Snapshot)
+
+  if (-not $Snapshot -or $Snapshot.Count -eq 0) {
+    [System.Windows.Forms.Clipboard]::Clear()
+    return
+  }
+
+  $dataObject = New-Object System.Windows.Forms.DataObject
+  if ($Snapshot.ContainsKey('Text')) {
+    $dataObject.SetText($Snapshot['Text'], [System.Windows.Forms.TextDataFormat]::UnicodeText)
+  }
+  if ($Snapshot.ContainsKey('Files')) {
+    $dataObject.SetFileDropList($Snapshot['Files'])
+  }
+  if ($Snapshot.ContainsKey('Image')) {
+    $dataObject.SetImage($Snapshot['Image'])
+  }
+  # The restored item must not show up as a fresh entry in Windows clipboard
+  # history (the user's original copy is already there); mark it excluded the
+  # same way the temporary paste payload is.
+  $disabledFlag = [System.BitConverter]::GetBytes([uint32]0)
+  $dataObject.SetData('ExcludeClipboardContentFromMonitorProcessing', $false, [byte[]](1))
+  $dataObject.SetData('CanIncludeInClipboardHistory', $false, $disabledFlag)
+  $dataObject.SetData('CanUploadToCloudClipboard', $false, $disabledFlag)
+  [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+}
+
 function Set-ClipboardTextForPaste {
   param(
     [Parameter(Mandatory = $true)]
@@ -94,6 +146,9 @@ function Set-ClipboardTextForPaste {
   $dataObject.SetData('CanUploadToCloudClipboard', $false, $disabledFlag)
   [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
 }
+
+# Remember what the user had on the clipboard so it can be restored after the paste.
+$previousClipboard = Get-ClipboardSnapshot
 
 # Place the transcription on the clipboard and confirm it actually landed before we
 # send the keystroke. The temporary clipboard item is marked so Windows should not
@@ -135,21 +190,24 @@ try {
   # Give the target app time to read the clipboard before removing our temporary text.
   Start-Sleep -Milliseconds 180
 } finally {
+  # Put the user's previous clipboard contents back, but only while the clipboard
+  # still holds our temporary text — if the user copied something newer in the
+  # meantime, leave it alone.
   try {
-    Invoke-ClipboardAction -Operation 'clear-injected-text' -Action {
+    Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
       if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-        [System.Windows.Forms.Clipboard]::Clear()
+        Restore-ClipboardSnapshot -Snapshot $previousClipboard
       }
     } | Out-Null
   } catch {
     try {
-      Invoke-ClipboardAction -Operation 'clear' -Action {
+      Invoke-ClipboardAction -Operation 'restore-retry' -Action {
         if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-          [System.Windows.Forms.Clipboard]::Clear()
+          Restore-ClipboardSnapshot -Snapshot $previousClipboard
         }
       } | Out-Null
     } catch {
-      # Best effort: clipboard cleanup failures should not break the paste operation.
+      # Best effort: clipboard restore failures should not break the paste operation.
     }
   }
 }
