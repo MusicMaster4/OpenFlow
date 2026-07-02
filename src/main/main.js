@@ -29,6 +29,7 @@ const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = false;
 const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
+const DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE = false;
 const DEFAULT_DUCK_AUDIO = true;
 const DEFAULT_OVERLAY_OPACITY = 100;
 const DEFAULT_OVERLAY_SCALE = 100;
@@ -229,6 +230,8 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Start with the computer disabled.',
     keepAllTranscriptionsOn: 'Saving all local transcriptions.',
     keepAllTranscriptionsOff: `Saving only the latest ${LOCAL_HISTORY_LIMIT} local messages.`,
+    autoHandsFreeOn: 'The global shortcut now starts hands-free dictation.',
+    autoHandsFreeOff: 'The global shortcut now uses hold-to-dictate.',
     shortcutUpdated: 'Global shortcut updated.',
     pasteShortcutUpdated: 'Paste-last shortcut updated.',
     duckAudioOn: 'Other apps will be muted while you dictate.',
@@ -269,6 +272,8 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Inicializacao com o computador desativada.',
     keepAllTranscriptionsOn: 'Salvando todas as transcricoes locais.',
     keepAllTranscriptionsOff: `Salvando apenas as ultimas ${LOCAL_HISTORY_LIMIT} mensagens locais.`,
+    autoHandsFreeOn: 'O atalho global agora inicia o ditado em hands-free.',
+    autoHandsFreeOff: 'O atalho global agora usa segurar para ditar.',
     shortcutUpdated: 'Atalho global atualizado.',
     pasteShortcutUpdated: 'Atalho de colar atualizado.',
     duckAudioOn: 'Outros apps serao silenciados enquanto voce dita.',
@@ -1051,6 +1056,7 @@ function getDefaultsFromEnv() {
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
     launchAtLogin: normalizeLaunchAtLoginPreference(DEFAULT_LAUNCH_AT_LOGIN),
     keepAllTranscriptions: DEFAULT_KEEP_ALL_TRANSCRIPTIONS,
+    autoEnableHandsFreeMode: DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE,
     duckAudioEnabled: DEFAULT_DUCK_AUDIO,
     overlayOpacity: DEFAULT_OVERLAY_OPACITY,
     overlayScale: DEFAULT_OVERLAY_SCALE,
@@ -1109,6 +1115,7 @@ const state = {
   soundEffectsEnabled: defaults.soundEffectsEnabled,
   launchAtLogin: defaults.launchAtLogin,
   keepAllTranscriptions: defaults.keepAllTranscriptions,
+  autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
   duckAudioEnabled: defaults.duckAudioEnabled,
   overlayOpacity: defaults.overlayOpacity,
   overlayScale: defaults.overlayScale,
@@ -1351,6 +1358,7 @@ function createEmptyPersistedState() {
       soundEffectsEnabled: defaults.soundEffectsEnabled,
       launchAtLogin: defaults.launchAtLogin,
       keepAllTranscriptions: defaults.keepAllTranscriptions,
+      autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
       duckAudioEnabled: defaults.duckAudioEnabled,
       overlayOpacity: defaults.overlayOpacity,
       overlayScale: defaults.overlayScale,
@@ -1411,6 +1419,10 @@ function normalizePersistedState(payload) {
           : defaults.launchAtLogin,
       ),
       keepAllTranscriptions,
+      autoEnableHandsFreeMode: normalizeBooleanPreference(
+        preferencesSource.autoEnableHandsFreeMode,
+        defaults.autoEnableHandsFreeMode,
+      ),
       duckAudioEnabled: normalizeBooleanPreference(
         preferencesSource.duckAudioEnabled,
         defaults.duckAudioEnabled,
@@ -1808,6 +1820,7 @@ function savePersistentState() {
       soundEffectsEnabled: state.soundEffectsEnabled,
       launchAtLogin: state.launchAtLogin,
       keepAllTranscriptions: state.keepAllTranscriptions,
+      autoEnableHandsFreeMode: state.autoEnableHandsFreeMode,
       duckAudioEnabled: state.duckAudioEnabled,
       overlayOpacity: state.overlayOpacity,
       overlayScale: state.overlayScale,
@@ -2394,6 +2407,12 @@ function getNextDictationSessionId() {
 
 function normalizeCaptureMode(mode) {
   return mode === 'hands-free' ? 'hands-free' : 'hold';
+}
+
+function getPreferredPrimaryShortcutMode(mode = 'hold') {
+  return state.autoEnableHandsFreeMode || process.platform === 'darwin'
+    ? 'hands-free'
+    : normalizeCaptureMode(mode);
 }
 
 function getWaitingNotice(captureMode) {
@@ -3401,7 +3420,7 @@ async function handleServiceEvent(event) {
 
 function handleHotkeyEvent(event) {
   const payload = event.payload || {};
-  const hotkeyMode = normalizeCaptureMode(payload.mode);
+  const hotkeyMode = getPreferredPrimaryShortcutMode(payload.mode);
 
   switch (event.type) {
     case 'ready':
@@ -3577,7 +3596,7 @@ function togglePrimaryShortcutCapture() {
     return;
   }
 
-  startListening(process.platform === 'darwin' ? 'hands-free' : 'hold');
+  startListening(getPreferredPrimaryShortcutMode());
 }
 
 function registerMainShortcut() {
@@ -4074,6 +4093,10 @@ async function applySettings(patch) {
     typeof patch.keepAllTranscriptions === 'boolean'
       ? patch.keepAllTranscriptions
       : state.keepAllTranscriptions;
+  const nextAutoEnableHandsFreeMode =
+    typeof patch.autoEnableHandsFreeMode === 'boolean'
+      ? patch.autoEnableHandsFreeMode
+      : state.autoEnableHandsFreeMode;
   const nextDictionaryEntries = Object.prototype.hasOwnProperty.call(patch, 'dictionaryEntries')
     ? normalizeDictionaryEntries(patch.dictionaryEntries)
     : state.dictionaryEntries;
@@ -4129,6 +4152,8 @@ async function applySettings(patch) {
   const launchAtLoginChanged = nextLaunchAtLogin !== state.launchAtLogin;
   const keepAllTranscriptionsChanged =
     nextKeepAllTranscriptions !== state.keepAllTranscriptions;
+  const autoEnableHandsFreeModeChanged =
+    nextAutoEnableHandsFreeMode !== state.autoEnableHandsFreeMode;
   const shortcutChanged = nextShortcut !== state.shortcut;
   const pasteLastShortcutChanged = nextPasteLastShortcut !== state.pasteLastShortcut;
   const duckAudioChanged = nextDuckAudioEnabled !== state.duckAudioEnabled;
@@ -4182,6 +4207,12 @@ async function applySettings(patch) {
       {},
       nextInterfaceLanguage,
     );
+  } else if (autoEnableHandsFreeModeChanged) {
+    notice = translateMain(
+      nextAutoEnableHandsFreeMode ? 'autoHandsFreeOn' : 'autoHandsFreeOff',
+      {},
+      nextInterfaceLanguage,
+    );
   } else if (shortcutChanged) {
     notice = translateMain('shortcutUpdated', {}, nextInterfaceLanguage);
   } else if (pasteLastShortcutChanged) {
@@ -4219,6 +4250,7 @@ async function applySettings(patch) {
     soundEffectsEnabled: nextSoundEffectsEnabled,
     launchAtLogin: nextLaunchAtLogin,
     keepAllTranscriptions: nextKeepAllTranscriptions,
+    autoEnableHandsFreeMode: nextAutoEnableHandsFreeMode,
     duckAudioEnabled: nextDuckAudioEnabled,
     overlayOpacity: nextOverlayOpacity,
     overlayScale: nextOverlayScale,
@@ -4875,6 +4907,7 @@ app.whenReady().then(() => {
     soundEffectsEnabled: persistedState.preferences.soundEffectsEnabled,
     launchAtLogin: persistedState.preferences.launchAtLogin,
     keepAllTranscriptions: persistedState.preferences.keepAllTranscriptions,
+    autoEnableHandsFreeMode: persistedState.preferences.autoEnableHandsFreeMode,
     duckAudioEnabled: persistedState.preferences.duckAudioEnabled,
     overlayOpacity: persistedState.preferences.overlayOpacity,
     overlayScale: persistedState.preferences.overlayScale,
