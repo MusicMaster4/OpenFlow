@@ -573,9 +573,8 @@ function normalizeDictionaryEntry(entry) {
   }
 
   const sourceValues = (Array.isArray(entry.sources) ? entry.sources : [entry.source])
-    .flatMap((value) => String(value || '').split(/\r?\n|;/))
-    .map((value) => value.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+    .flatMap((value) => String(value ?? '').split(/\r\n|\n|\r/))
+    .filter((value) => value.length > 0);
   const sources = [];
   const seenSources = new Set();
 
@@ -588,9 +587,7 @@ function normalizeDictionaryEntry(entry) {
     seenSources.add(key);
     sources.push(value);
   }
-  const target = String(entry.target || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const target = String(entry.target ?? '');
 
   // An empty target is a valid rule: the matched source is deleted from the output.
   if (sources.length === 0) {
@@ -631,13 +628,22 @@ function normalizeDictionaryEntries(entries) {
 }
 
 function escapeRegExp(value) {
-  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return String(value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isDictionaryWordCharacter(value) {
+  return /^[\p{L}\p{N}_]$/u.test(value);
 }
 
 function buildDictionaryPattern(source) {
-  const normalizedSource = String(source || '').trim();
-  const escapedSource = escapeRegExp(normalizedSource).replace(/\s+/g, '\\s+');
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${escapedSource}(?![\\p{L}\\p{N}_])`, 'giu');
+  const sourceText = String(source ?? '');
+  const sourceCharacters = Array.from(sourceText);
+  const firstCharacter = sourceCharacters[0] || '';
+  const lastCharacter = sourceCharacters[sourceCharacters.length - 1] || '';
+  const startBoundary = isDictionaryWordCharacter(firstCharacter) ? '(?<![\\p{L}\\p{N}_])' : '';
+  const endBoundary = isDictionaryWordCharacter(lastCharacter) ? '(?![\\p{L}\\p{N}_])' : '';
+
+  return new RegExp(`${startBoundary}${escapeRegExp(sourceText)}${endBoundary}`, 'giu');
 }
 
 function createDictionaryReplacementIndex(entries) {
@@ -653,19 +659,19 @@ function createDictionaryReplacementIndex(entries) {
     }
 
     // An empty target means the matched source is deleted from the output.
-    const target = String(entry.target || '');
+    const target = String(entry.target ?? '');
 
     for (const source of entry.sources) {
-      const normalizedSource = String(source || '').trim();
-      if (!normalizedSource) {
+      const sourceText = String(source ?? '');
+      if (!sourceText) {
         continue;
       }
 
       const compiledEntry = {
-        source: normalizedSource,
-        sourceLength: normalizedSource.length,
+        source: sourceText,
+        sourceLength: sourceText.length,
         target,
-        pattern: buildDictionaryPattern(normalizedSource),
+        pattern: buildDictionaryPattern(sourceText),
       };
 
       buckets.all.push(compiledEntry);

@@ -1915,10 +1915,9 @@ function setDictionaryOpen(open) {
 function parseDictionarySources(value) {
   const nextSources = [];
   const seenSources = new Set();
-  for (const item of String(value || '')
-    .split(/\r?\n|;/)
-    .map((part) => part.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)) {
+  for (const item of String(value ?? '')
+    .split(/\r\n|\n|\r/)
+    .filter((part) => part.length > 0)) {
     const key = item.toLocaleLowerCase(locale());
     if (seenSources.has(key)) continue;
     seenSources.add(key);
@@ -2211,7 +2210,7 @@ function setupHandlers() {
   els.dictionaryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const sources = parseDictionarySources(els.dictionarySources.value);
-    const target = (els.dictionaryTarget.value || '').trim();
+    const target = els.dictionaryTarget.value ?? '';
     const fallbackLanguages = getDictionaryFallbackLanguages();
     const languages = selectedDictionaryLanguages(fallbackLanguages);
 
@@ -2238,7 +2237,7 @@ function setupHandlers() {
       if (!entry) return;
       editingDictionaryRuleId = entry.id;
       els.dictionarySources.value = (entry.sources || []).join('\n');
-      els.dictionaryTarget.value = entry.target || '';
+      els.dictionaryTarget.value = entry.target ?? '';
       els.dictionaryLangPt.checked = (entry.languages || []).includes('pt');
       els.dictionaryLangEn.checked = (entry.languages || []).includes('en');
       applyTranslations();
