@@ -1,16 +1,23 @@
 # OpenFlow
 
+Current version: `1.3.030`
+
 OpenFlow is a desktop voice dictation app for Windows and macOS built with Electron on the UI layer and Faster-Whisper for local transcription.
 
-It is designed for fast keyboard-free text capture, global shortcuts, a floating recording overlay, and local model execution with on-demand downloads.
+It is designed for fast keyboard-free text capture, global shortcuts, a floating recording overlay, local model execution with on-demand downloads, and optional cloud transcription through OpenRouter.
 
 ## Highlights
 
 - Local transcription powered by Faster-Whisper
+- Optional cloud transcription through OpenRouter speech-to-text models
 - Electron desktop UI with history, diagnostics, settings, and dictionary rules
-- Global dictation shortcut plus a paste-last shortcut
-- Floating overlay with live activity feedback
+- Global hold-to-dictate shortcut, hands-free mode, and a paste-last shortcut
+- Floating overlay with live activity feedback, drag positioning, opacity, scale, and dynamic-size controls
 - On-demand Whisper model downloads stored in the user data directory
+- Model timing stats, usage stats, searchable local history, and configurable history retention
+- Dictionary rules for automatic phrase replacement or removal in final text
+- Sound feedback, launch-at-login, and optional audio ducking while dictating
+- In-app update checking and installation for packaged builds
 - Separate Python workers for transcription and hotkey handling
 
 ## Platforms
@@ -30,6 +37,7 @@ It is designed for fast keyboard-free text capture, global shortcuts, a floating
 - Node.js
 - Python 3.12
 - Faster-Whisper
+- OpenRouter API for optional cloud transcription
 - PyInstaller
 
 ## Setup
@@ -72,14 +80,19 @@ Variable reference:
 
 If you do not need custom behavior, copy the example file and keep almost everything as-is.
 
+Cloud transcription is configured inside the app settings by saving an OpenRouter API key. The key is stored with Electron safe storage when available, and cloud mode requires accepting the in-app privacy notice before audio is sent to OpenRouter and the selected provider.
+
 ## Available Scripts
 
 - `npm start`: run the Electron app in development mode
 - `npm run check`: syntax-check the tracked JavaScript files
 - `npm run build:python`: package the Python workers with PyInstaller
 - `npm run dist:win`: build the Windows desktop package
+- `npm run dist:mac`: build the macOS package for the current architecture
 - `npm run dist:mac:x64`: build the macOS Intel package
 - `npm run dist:mac:arm64`: build the macOS Apple Silicon package
+- `npm run publish:mac:x64`: build and publish macOS Intel update artifacts
+- `npm run publish:mac:arm64`: build and publish macOS Apple Silicon update artifacts
 
 ## Repository Layout
 
@@ -95,7 +108,9 @@ Packaging instructions and output details are documented in [`BUILDING.md`](./BU
 
 ## Privacy
 
-OpenFlow runs transcription locally on the user machine. Whisper models are downloaded when needed and then cached in the app's user data directory.
+By default, OpenFlow runs transcription locally on the user machine. Whisper models are downloaded when needed and then cached in the app's user data directory.
+
+If cloud transcription is enabled, recorded audio is sent to OpenRouter and the selected speech-to-text provider. Failed cloud recordings can be saved locally for retrying without recording again.
 
 ## License
 
