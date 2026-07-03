@@ -1256,7 +1256,9 @@ h1, h2, h3 {
   transition: border-color 0.2s;
 }
 .toggle-card:hover { border-color: var(--panel-border-strong); }
-.panel--settings .toggle-card + .toggle-card { margin-top: 12px; }
+.panel--settings > :is(.shortcut-setting, .toggle-card, .slider-card) + :is(.shortcut-setting, .toggle-card, .slider-card) {
+  margin-top: 12px;
+}
 
 /* Software update card */
 .update-card {
@@ -1496,9 +1498,6 @@ h1, h2, h3 {
   background: var(--panel-bg-subtle);
   box-shadow: var(--shadow-sm);
 }
-.panel--settings .slider-card + .slider-card,
-.panel--settings .slider-card + .toggle-card,
-.panel--settings .toggle-card + .slider-card { margin-top: 12px; }
 .slider-card__head {
   display: flex;
   justify-content: space-between;
@@ -1560,7 +1559,6 @@ h1, h2, h3 {
   background: var(--panel-bg-subtle);
   box-shadow: var(--shadow-sm);
 }
-.panel--settings .shortcut-setting + .shortcut-setting { margin-top: 12px; }
 .shortcut-setting__info { min-width: 0; }
 .shortcut-setting__info strong { display: block; font-size: 0.95rem; margin-bottom: 4px; }
 .shortcut-setting__info p { margin: 0; font-size: 0.85rem; color: var(--muted); line-height: 1.4; }

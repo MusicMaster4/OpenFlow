@@ -382,6 +382,15 @@ class DictationService:
             except queue.Empty:
                 break
 
+    def _drain_audio_queue(self) -> None:
+        while True:
+            try:
+                frame = self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            self._process_frame(frame)
+
     def start(self, payload: Optional[dict] = None) -> None:
         if self.listening:
             return
@@ -447,19 +456,42 @@ class DictationService:
 
     def cancel(self, payload: Optional[dict] = None) -> None:
         session_id = self._coerce_session_id(payload) or self.current_session_id
-        if session_id is not None:
+        should_transcribe_cancelled = bool(
+            payload and payload.get("transcribe_cancelled") is True and session_id is not None
+        )
+        if session_id is not None and not should_transcribe_cancelled:
             self.canceled_session_ids.add(session_id)
 
+        self._close_stream()
+        if should_transcribe_cancelled:
+            self._drain_audio_queue()
+            self._flush_open_segment()
         self.listening = False
         self.recording_started_at = 0.0
-        self._close_stream()
-        self._reset_segment_state()
-        self.pending_segments = []
-        self._clear_audio_queue()
+        if not should_transcribe_cancelled:
+            self._reset_segment_state()
+            self.pending_segments = []
+            self._clear_audio_queue()
         if self.current_session_id == session_id:
             self.current_session_id = None
 
         self.emit("partial", {"text": "", "session_id": session_id})
+        if should_transcribe_cancelled:
+            pending_audio_ms = round(
+                sum(len(segment) for segment in self.pending_segments) / self.sample_rate * 1000, 1
+            )
+            if pending_audio_ms < MIN_TRANSCRIPTION_AUDIO_MS:
+                self.pending_segments = []
+                self.emit(
+                    "too-short",
+                    {
+                        "audio_duration_ms": pending_audio_ms,
+                        "session_id": session_id,
+                        "cancelled": True,
+                    },
+                )
+            else:
+                self._queue_pending_transcription(session_id)
         self.emit("state", {"phase": "idle", "listening": False, "session_id": session_id})
 
     def configure(self, payload: Optional[dict]) -> None:
@@ -723,7 +755,7 @@ class DictationService:
                         },
                     )
             except Exception as error:
-                self.emit("error", {"message": f"Transcription error: {error}"})
+                self.emit("error", {"message": f"Transcription error: {error}", "session_id": session_id})
             finally:
                 if self.current_session_id == session_id and not self.listening:
                     self.current_session_id = None

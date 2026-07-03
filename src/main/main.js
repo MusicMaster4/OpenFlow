@@ -29,6 +29,7 @@ const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = false;
 const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
+const DEFAULT_TRANSCRIBE_CANCELLED_RECORDINGS = false;
 const DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE = false;
 const DEFAULT_DUCK_AUDIO = true;
 const DEFAULT_OVERLAY_OPACITY = 100;
@@ -56,6 +57,7 @@ const OPENROUTER_STT_URL = `${OPENROUTER_BASE_URL}/audio/transcriptions`;
 const OPENROUTER_DEFAULT_MODEL = DEFAULT_CLOUD_TRANSCRIPTION_MODEL;
 const CLOUD_RETRY_LIMIT = 20;
 const CLOUD_TRANSCRIPTION_TIMEOUT_MS = 120000;
+const BACKGROUND_TRANSCRIPTION_SESSION_TTL_MS = 30 * 60 * 1000;
 const MODEL_OPTIONS = [
   {
     id: 'tiny',
@@ -230,6 +232,8 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Start with the computer disabled.',
     keepAllTranscriptionsOn: 'Saving all local transcriptions.',
     keepAllTranscriptionsOff: `Saving only the latest ${LOCAL_HISTORY_LIMIT} local messages.`,
+    transcribeCancelledRecordingsOn: 'Cancelled recordings will be transcribed in the background.',
+    transcribeCancelledRecordingsOff: 'Cancelled recordings will be discarded.',
     autoHandsFreeOn: 'The global shortcut now starts hands-free dictation.',
     autoHandsFreeOff: 'The global shortcut now uses hold-to-dictate.',
     shortcutUpdated: 'Global shortcut updated.',
@@ -272,6 +276,9 @@ const MAIN_TRANSLATIONS = {
     launchAtLoginOff: 'Inicializacao com o computador desativada.',
     keepAllTranscriptionsOn: 'Salvando todas as transcricoes locais.',
     keepAllTranscriptionsOff: `Salvando apenas as ultimas ${LOCAL_HISTORY_LIMIT} mensagens locais.`,
+    transcribeCancelledRecordingsOn:
+      'Gravacoes canceladas serao transcritas em segundo plano.',
+    transcribeCancelledRecordingsOff: 'Gravacoes canceladas serao descartadas.',
     autoHandsFreeOn: 'O atalho global agora inicia o ditado em hands-free.',
     autoHandsFreeOff: 'O atalho global agora usa segurar para ditar.',
     shortcutUpdated: 'Atalho global atualizado.',
@@ -314,6 +321,7 @@ let pasteLastRegisteredViaElectron = false;
 let lastPasteLastRequestAt = 0;
 const pendingOverlayFeedbacks = [];
 let currentDictationStartedAt = 0;
+let dictationSessionCounter = 0;
 let captureMuteDepth = 0;
 let suppressStartSoundUntil = 0;
 let suppressStartRequestsUntil = 0;
@@ -327,6 +335,7 @@ let lastAudioControllerConfigSignature = '';
 let isQuitting = false;
 let shouldStartHiddenOnLaunch = process.argv.some((arg) => arg === '--background');
 const activeCloudTranscriptionSessions = new Set();
+const backgroundTranscriptionSessions = new Set();
 
 function getDefaultModel() {
   return process.env.WHISPER_MODEL || 'small';
@@ -1056,6 +1065,7 @@ function getDefaultsFromEnv() {
     soundEffectsEnabled: DEFAULT_SOUND_EFFECTS_ENABLED,
     launchAtLogin: normalizeLaunchAtLoginPreference(DEFAULT_LAUNCH_AT_LOGIN),
     keepAllTranscriptions: DEFAULT_KEEP_ALL_TRANSCRIPTIONS,
+    transcribeCancelledRecordings: DEFAULT_TRANSCRIBE_CANCELLED_RECORDINGS,
     autoEnableHandsFreeMode: DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE,
     duckAudioEnabled: DEFAULT_DUCK_AUDIO,
     overlayOpacity: DEFAULT_OVERLAY_OPACITY,
@@ -1115,6 +1125,7 @@ const state = {
   soundEffectsEnabled: defaults.soundEffectsEnabled,
   launchAtLogin: defaults.launchAtLogin,
   keepAllTranscriptions: defaults.keepAllTranscriptions,
+  transcribeCancelledRecordings: defaults.transcribeCancelledRecordings,
   autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
   duckAudioEnabled: defaults.duckAudioEnabled,
   overlayOpacity: defaults.overlayOpacity,
@@ -1358,6 +1369,7 @@ function createEmptyPersistedState() {
       soundEffectsEnabled: defaults.soundEffectsEnabled,
       launchAtLogin: defaults.launchAtLogin,
       keepAllTranscriptions: defaults.keepAllTranscriptions,
+      transcribeCancelledRecordings: defaults.transcribeCancelledRecordings,
       autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
       duckAudioEnabled: defaults.duckAudioEnabled,
       overlayOpacity: defaults.overlayOpacity,
@@ -1393,6 +1405,10 @@ function normalizePersistedState(payload) {
     typeof preferencesSource.keepAllTranscriptions === 'boolean'
       ? preferencesSource.keepAllTranscriptions
       : defaults.keepAllTranscriptions;
+  const transcribeCancelledRecordings =
+    typeof preferencesSource.transcribeCancelledRecordings === 'boolean'
+      ? preferencesSource.transcribeCancelledRecordings
+      : defaults.transcribeCancelledRecordings;
 
   return {
     version: PERSISTENCE_VERSION,
@@ -1419,6 +1435,7 @@ function normalizePersistedState(payload) {
           : defaults.launchAtLogin,
       ),
       keepAllTranscriptions,
+      transcribeCancelledRecordings,
       autoEnableHandsFreeMode: normalizeBooleanPreference(
         preferencesSource.autoEnableHandsFreeMode,
         defaults.autoEnableHandsFreeMode,
@@ -1820,6 +1837,7 @@ function savePersistentState() {
       soundEffectsEnabled: state.soundEffectsEnabled,
       launchAtLogin: state.launchAtLogin,
       keepAllTranscriptions: state.keepAllTranscriptions,
+      transcribeCancelledRecordings: state.transcribeCancelledRecordings,
       autoEnableHandsFreeMode: state.autoEnableHandsFreeMode,
       duckAudioEnabled: state.duckAudioEnabled,
       overlayOpacity: state.overlayOpacity,
@@ -2402,7 +2420,8 @@ function applyDictionaryReplacements(text, detectedLanguage) {
 }
 
 function getNextDictationSessionId() {
-  return Number(state.dictationSessionId || 0) + 1;
+  dictationSessionCounter += 1;
+  return dictationSessionCounter;
 }
 
 function normalizeCaptureMode(mode) {
@@ -2446,6 +2465,30 @@ function extractSessionId(payload) {
 
 function isCurrentDictationSession(sessionId) {
   return sessionId === null || sessionId === state.dictationSessionId;
+}
+
+function isBackgroundTranscriptionSession(sessionId) {
+  return sessionId !== null && backgroundTranscriptionSessions.has(sessionId);
+}
+
+function markBackgroundTranscriptionSession(sessionId) {
+  if (sessionId === null) {
+    return;
+  }
+
+  backgroundTranscriptionSessions.add(sessionId);
+  const timeout = setTimeout(() => {
+    backgroundTranscriptionSessions.delete(sessionId);
+  }, BACKGROUND_TRANSCRIPTION_SESSION_TTL_MS);
+  if (typeof timeout.unref === 'function') {
+    timeout.unref();
+  }
+}
+
+function clearBackgroundTranscriptionSession(sessionId) {
+  if (sessionId !== null) {
+    backgroundTranscriptionSessions.delete(sessionId);
+  }
 }
 
 function hasOngoingTranscription() {
@@ -2986,8 +3029,19 @@ function cancelDictation(source = 'escape') {
   const nextNotice =
     source === 'escape' ? 'Ditado cancelado por Esc.' : 'Ditado cancelado.';
   const sessionId = state.dictationSessionId;
-  if (sessionId !== null) {
+  const shouldTranscribeCancelledRecording =
+    source === 'escape' &&
+    state.transcribeCancelledRecordings &&
+    state.listening &&
+    state.serviceOnline &&
+    state.engineReady &&
+    sessionId !== null;
+
+  if (sessionId !== null && !shouldTranscribeCancelledRecording) {
     activeCloudTranscriptionSessions.delete(sessionId);
+  }
+  if (shouldTranscribeCancelledRecording) {
+    markBackgroundTranscriptionSession(sessionId);
   }
   resetDictationFeedbackState();
 
@@ -3008,7 +3062,10 @@ function cancelDictation(source = 'escape') {
   sendOverlayFeedback('play-sound', { sound: 'cancel', interrupt: true });
 
   if (state.serviceOnline && state.engineReady && sessionId !== null) {
-    sendServiceCommand('cancel', { session_id: sessionId });
+    sendServiceCommand('cancel', {
+      session_id: sessionId,
+      transcribe_cancelled: shouldTranscribeCancelledRecording,
+    });
   }
 
   return snapshotState();
@@ -3066,6 +3123,7 @@ async function commitTranscription(payload, sessionId, options = {}) {
   }
 
   const shouldPaste = options.paste !== false;
+  const isBackground = options.background === true;
   const isCloud = payload.engine === 'cloud';
   const resolvedText = applyDictionaryReplacements(text, payload.language);
   const pasteText = normalizeTextForPaste(resolvedText);
@@ -3086,21 +3144,28 @@ async function commitTranscription(payload, sessionId, options = {}) {
     ? state.modelStats
     : recordModelTiming(payload.model || state.model, entry.transcriptionMs);
 
-  setState({
+  const nextState = {
     latestFinal: resolvedText,
     latestLanguage: payload.language || 'unknown',
-    partial: '',
     history,
     usageStats,
     modelStats,
-    dictationSessionId: sessionId,
-    pendingPaste: shouldPaste,
-    phase: shouldPaste ? 'transcribing' : state.listening ? 'listening' : 'idle',
     error: '',
-  });
+  };
+
+  if (!isBackground) {
+    Object.assign(nextState, {
+      partial: '',
+      dictationSessionId: sessionId,
+      pendingPaste: shouldPaste,
+      phase: shouldPaste ? 'transcribing' : state.listening ? 'listening' : 'idle',
+    });
+  }
+
+  setState(nextState);
   savePersistentState();
 
-  if (!shouldPaste) {
+  if (!shouldPaste || isBackground) {
     return;
   }
 
@@ -3202,7 +3267,8 @@ async function transcribeWithOpenRouter(audioPayload, options = {}) {
 }
 
 async function handleCloudAudioPayload(payload, sessionId) {
-  if (!isCurrentDictationSession(sessionId)) {
+  const isBackground = isBackgroundTranscriptionSession(sessionId);
+  if (!isBackground && !isCurrentDictationSession(sessionId)) {
     return;
   }
 
@@ -3215,29 +3281,34 @@ async function handleCloudAudioPayload(payload, sessionId) {
     { silent: true },
   );
 
-  if (sessionId !== null) {
+  if (!isBackground && sessionId !== null) {
     activeCloudTranscriptionSessions.add(sessionId);
   }
-  setState({
-    phase: 'transcribing',
-    partial: '',
-    error: '',
-  });
+  if (!isBackground) {
+    setState({
+      phase: 'transcribing',
+      partial: '',
+      error: '',
+    });
+  }
 
   try {
     const result = await transcribeWithOpenRouter(payload);
-    if (!isCurrentDictationSession(sessionId)) {
+    if (!isBackground && !isCurrentDictationSession(sessionId)) {
       deleteCloudRetry(retryRecord.id);
       return;
     }
-    await commitTranscription(result, sessionId, { paste: true });
+    await commitTranscription(result, sessionId, { paste: !isBackground, background: isBackground });
     deleteCloudRetry(retryRecord.id);
   } catch (error) {
-    if (!isCurrentDictationSession(sessionId)) {
+    if (!isBackground && !isCurrentDictationSession(sessionId)) {
       deleteCloudRetry(retryRecord.id);
       return;
     }
     updateCloudRetryError(retryRecord.id, error);
+    if (isBackground) {
+      return;
+    }
     resetDictationFeedbackState();
     releaseCaptureMute(true);
     setState({
@@ -3252,6 +3323,9 @@ async function handleCloudAudioPayload(payload, sessionId) {
   } finally {
     if (sessionId !== null) {
       activeCloudTranscriptionSessions.delete(sessionId);
+    }
+    if (isBackground) {
+      clearBackgroundTranscriptionSession(sessionId);
     }
   }
 }
@@ -3294,6 +3368,7 @@ async function retryCloudTranscription(id) {
 async function handleServiceEvent(event) {
   const payload = event.payload || {};
   const sessionId = extractSessionId(payload);
+  const isBackground = isBackgroundTranscriptionSession(sessionId);
 
   switch (event.type) {
     case 'ready':
@@ -3325,6 +3400,9 @@ async function handleServiceEvent(event) {
         break;
       }
     case 'state':
+      if (isBackground) {
+        break;
+      }
       if (!isCurrentDictationSession(sessionId)) {
         break;
       }
@@ -3355,14 +3433,14 @@ async function handleServiceEvent(event) {
       }
       break;
     case 'level':
-      if (!isCurrentDictationSession(sessionId)) {
+      if (isBackground || !isCurrentDictationSession(sessionId)) {
         break;
       }
       setOverlayAudioLevel(payload.level);
       setOverlayAudioBands(payload.bands);
       break;
     case 'partial':
-      if (!isCurrentDictationSession(sessionId)) {
+      if (isBackground || !isCurrentDictationSession(sessionId)) {
         break;
       }
       setState({
@@ -3373,6 +3451,10 @@ async function handleServiceEvent(event) {
       await handleCloudAudioPayload(payload, sessionId);
       break;
     case 'too-short':
+      if (isBackground) {
+        clearBackgroundTranscriptionSession(sessionId);
+        break;
+      }
       if (!isCurrentDictationSession(sessionId)) {
         break;
       }
@@ -3390,6 +3472,14 @@ async function handleServiceEvent(event) {
       }
       break;
     case 'final': {
+      if (isBackground) {
+        await commitTranscription({ ...payload, engine: 'local' }, sessionId, {
+          paste: false,
+          background: true,
+        });
+        clearBackgroundTranscriptionSession(sessionId);
+        break;
+      }
       if (!isCurrentDictationSession(sessionId)) {
         break;
       }
@@ -3400,6 +3490,10 @@ async function handleServiceEvent(event) {
       classifyWarning(payload.message || 'Aviso do motor de ditado.');
       break;
     case 'error':
+      if (isBackground) {
+        clearBackgroundTranscriptionSession(sessionId);
+        break;
+      }
       resetDictationFeedbackState();
       releaseCaptureMute(true);
       setState({
@@ -4049,6 +4143,7 @@ async function shutdownServiceForRestart() {
 async function restartDictationService() {
   const restartVersion = ++serviceRestartVersion;
   activeCloudTranscriptionSessions.clear();
+  backgroundTranscriptionSessions.clear();
   resetDictationFeedbackState();
   releaseCaptureMute(true);
   setState({
@@ -4093,6 +4188,10 @@ async function applySettings(patch) {
     typeof patch.keepAllTranscriptions === 'boolean'
       ? patch.keepAllTranscriptions
       : state.keepAllTranscriptions;
+  const nextTranscribeCancelledRecordings =
+    typeof patch.transcribeCancelledRecordings === 'boolean'
+      ? patch.transcribeCancelledRecordings
+      : state.transcribeCancelledRecordings;
   const nextAutoEnableHandsFreeMode =
     typeof patch.autoEnableHandsFreeMode === 'boolean'
       ? patch.autoEnableHandsFreeMode
@@ -4152,6 +4251,8 @@ async function applySettings(patch) {
   const launchAtLoginChanged = nextLaunchAtLogin !== state.launchAtLogin;
   const keepAllTranscriptionsChanged =
     nextKeepAllTranscriptions !== state.keepAllTranscriptions;
+  const transcribeCancelledRecordingsChanged =
+    nextTranscribeCancelledRecordings !== state.transcribeCancelledRecordings;
   const autoEnableHandsFreeModeChanged =
     nextAutoEnableHandsFreeMode !== state.autoEnableHandsFreeMode;
   const shortcutChanged = nextShortcut !== state.shortcut;
@@ -4207,6 +4308,14 @@ async function applySettings(patch) {
       {},
       nextInterfaceLanguage,
     );
+  } else if (transcribeCancelledRecordingsChanged) {
+    notice = translateMain(
+      nextTranscribeCancelledRecordings
+        ? 'transcribeCancelledRecordingsOn'
+        : 'transcribeCancelledRecordingsOff',
+      {},
+      nextInterfaceLanguage,
+    );
   } else if (autoEnableHandsFreeModeChanged) {
     notice = translateMain(
       nextAutoEnableHandsFreeMode ? 'autoHandsFreeOn' : 'autoHandsFreeOff',
@@ -4250,6 +4359,7 @@ async function applySettings(patch) {
     soundEffectsEnabled: nextSoundEffectsEnabled,
     launchAtLogin: nextLaunchAtLogin,
     keepAllTranscriptions: nextKeepAllTranscriptions,
+    transcribeCancelledRecordings: nextTranscribeCancelledRecordings,
     autoEnableHandsFreeMode: nextAutoEnableHandsFreeMode,
     duckAudioEnabled: nextDuckAudioEnabled,
     overlayOpacity: nextOverlayOpacity,
@@ -4939,6 +5049,7 @@ app.whenReady().then(() => {
     soundEffectsEnabled: persistedState.preferences.soundEffectsEnabled,
     launchAtLogin: persistedState.preferences.launchAtLogin,
     keepAllTranscriptions: persistedState.preferences.keepAllTranscriptions,
+    transcribeCancelledRecordings: persistedState.preferences.transcribeCancelledRecordings,
     autoEnableHandsFreeMode: persistedState.preferences.autoEnableHandsFreeMode,
     duckAudioEnabled: persistedState.preferences.duckAudioEnabled,
     overlayOpacity: persistedState.preferences.overlayOpacity,

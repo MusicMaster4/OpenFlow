@@ -67,6 +67,9 @@ const TRANSLATIONS = {
     keepAllTranscriptions: 'Keep all transcriptions',
     keepAllTranscriptionsCopy:
       'Save every local transcription without the {count}-message limit.',
+    transcribeCancelledRecordings: 'Transcribe cancelled recordings',
+    transcribeCancelledRecordingsCopy:
+      'When Esc cancels a recording, transcribe it in the background and save it to history without pasting.',
     autoEnableHandsFreeMode: 'Auto-enable hands-free mode',
     autoEnableHandsFreeModeCopy:
       'Start hands-free dictation as soon as you press the global shortcut.',
@@ -360,6 +363,9 @@ Object.assign(TRANSLATIONS['pt-BR'], {
   keepAllTranscriptions: 'Guardar todas as transcricoes',
   keepAllTranscriptionsCopy:
     'Salva cada transcricao local sem o limite de {count} mensagens.',
+  transcribeCancelledRecordings: 'Transcrever gravacoes canceladas',
+  transcribeCancelledRecordingsCopy:
+    'Ao cancelar com Esc, transcreve em segundo plano e salva no historico sem colar.',
   autoEnableHandsFreeMode: 'Ativar hands-free automaticamente',
   autoEnableHandsFreeModeCopy:
     'Inicia o ditado em hands-free assim que voce pressiona o atalho global.',
@@ -564,6 +570,9 @@ for (const code of SUPPORTED_INTERFACE_LANGUAGES) {
     keepAllTranscriptions: 'Keep all transcriptions',
     keepAllTranscriptionsCopy:
       'Save every local transcription without the {count}-message limit.',
+    transcribeCancelledRecordings: 'Transcribe cancelled recordings',
+    transcribeCancelledRecordingsCopy:
+      'When Esc cancels a recording, transcribe it in the background and save it to history without pasting.',
     autoEnableHandsFreeMode: 'Auto-enable hands-free mode',
     autoEnableHandsFreeModeCopy:
       'Start hands-free dictation as soon as you press the global shortcut.',
@@ -670,6 +679,7 @@ const els = {
   launchAtLogin: document.getElementById('launch-at-login'),
   soundEffectsEnabled: document.getElementById('sound-effects-enabled'),
   keepAllTranscriptions: document.getElementById('keep-all-transcriptions'),
+  transcribeCancelledRecordings: document.getElementById('transcribe-cancelled-recordings'),
   autoEnableHandsFreeMode: document.getElementById('auto-enable-hands-free-mode'),
   keepAllTranscriptionsCopy: document.getElementById('keep-all-transcriptions-copy'),
   transcriptionHistoryCopy: document.getElementById('transcription-history-copy'),
@@ -1660,6 +1670,7 @@ function renderState(state) {
   els.launchAtLogin.checked = Boolean(state.launchAtLogin);
   els.soundEffectsEnabled.checked = Boolean(state.soundEffectsEnabled);
   els.keepAllTranscriptions.checked = Boolean(state.keepAllTranscriptions);
+  els.transcribeCancelledRecordings.checked = Boolean(state.transcribeCancelledRecordings);
   els.autoEnableHandsFreeMode.checked = Boolean(state.autoEnableHandsFreeMode);
   els.duckAudio.checked = Boolean(state.duckAudioEnabled);
   els.overlayDynamicSize.checked = Boolean(state.overlayDynamicSize);
@@ -2265,6 +2276,11 @@ function setupHandlers() {
   els.keepAllTranscriptions.addEventListener('change', async () => {
     renderState(await window.flowLocal.updateSettings({
       keepAllTranscriptions: els.keepAllTranscriptions.checked,
+    }));
+  });
+  els.transcribeCancelledRecordings.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({
+      transcribeCancelledRecordings: els.transcribeCancelledRecordings.checked,
     }));
   });
   els.autoEnableHandsFreeMode.addEventListener('change', async () => {
