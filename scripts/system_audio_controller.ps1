@@ -681,8 +681,6 @@ $state = @{
     PendingSnapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
 }
 
-$pendingRestoreIntervalMs = 1000
-
 function New-SnapshotList {
     return New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
 }
@@ -802,22 +800,27 @@ function Load-SnapshotState {
         return @()
     }
 
-    $items = @($raw | ConvertFrom-Json)
+    $converted = ConvertFrom-Json -InputObject $raw
+    $items = @($converted)
     return @($items | ForEach-Object {
-        $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
-        if ($_.PSObject.Properties.Name -contains 'SessionId') {
-            $snapshot.SessionId = [string]$_.SessionId
+        try {
+            $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
+            if ($_.PSObject.Properties.Name -contains 'SessionId') {
+                $snapshot.SessionId = [string]$_.SessionId
+            }
+            $snapshot.InstanceId = [string]$_.InstanceId
+            if ($_.PSObject.Properties.Name -contains 'ProcessId') {
+                $snapshot.ProcessId = [int]$_.ProcessId
+            }
+            if ($_.PSObject.Properties.Name -contains 'ProcessName') {
+                $snapshot.ProcessName = [string]$_.ProcessName
+            }
+            $snapshot.Volume = [float]$_.Volume
+            $snapshot.Muted = [bool]$_.Muted
+            $snapshot
+        } catch {
+            $null
         }
-        $snapshot.InstanceId = [string]$_.InstanceId
-        if ($_.PSObject.Properties.Name -contains 'ProcessId') {
-            $snapshot.ProcessId = [int]$_.ProcessId
-        }
-        if ($_.PSObject.Properties.Name -contains 'ProcessName') {
-            $snapshot.ProcessName = [string]$_.ProcessName
-        }
-        $snapshot.Volume = [float]$_.Volume
-        $snapshot.Muted = [bool]$_.Muted
-        $snapshot
     })
 }
 
@@ -917,8 +920,6 @@ function Start-CaptureDuck {
         return
     }
 
-    Restore-PendingSnapshots | Out-Null
-
     $snapshots = [OpenFlow.Audio.SessionVolumeController]::DuckExcept($state.ExcludedPids, $state.DuckVolume)
     $state.Snapshots = New-SnapshotList
     foreach ($snapshot in $snapshots) {
@@ -933,12 +934,18 @@ function Stop-CaptureDuck {
     if (-not $state.CaptureActive) {
         if (Test-Path $snapshotStatePath) {
             Restore-StaleSnapshotState | Out-Null
+        } else {
+            Restore-PendingSnapshots | Out-Null
         }
         return
     }
 
+    $activeSnapshots = ConvertTo-SnapshotList -Snapshots $state.Snapshots
+    $state.Snapshots = New-SnapshotList
+    $state.CaptureActive = $false
+
     try {
-        $pendingActive = Restore-SnapshotList -Snapshots $state.Snapshots
+        $pendingActive = Restore-SnapshotList -Snapshots $activeSnapshots
         $combinedPending = ConvertTo-SnapshotList -Snapshots $state.PendingSnapshots
         foreach ($snapshot in @($pendingActive)) {
             Add-SnapshotIfMissing -Target $combinedPending -Snapshot $snapshot
@@ -946,15 +953,11 @@ function Stop-CaptureDuck {
         Set-PendingSnapshots -Snapshots $combinedPending
     } catch {
         $combinedPending = ConvertTo-SnapshotList -Snapshots $state.PendingSnapshots
-        foreach ($snapshot in @($state.Snapshots)) {
+        foreach ($snapshot in @($activeSnapshots)) {
             Add-SnapshotIfMissing -Target $combinedPending -Snapshot $snapshot
         }
         Set-PendingSnapshots -Snapshots $combinedPending
         throw
-    } finally {
-        $state.Snapshots = New-SnapshotList
-        $state.CaptureActive = $false
-        Save-CurrentSnapshotState
     }
 }
 
@@ -972,19 +975,8 @@ try {
 Emit-Event -Type 'ready'
 
 try {
-    $readTask = [Console]::In.ReadLineAsync()
     while ($state.Running) {
-        if (-not $readTask.Wait($pendingRestoreIntervalMs)) {
-            try {
-                Restore-PendingSnapshots | Out-Null
-            } catch {
-                Emit-Event -Type 'warning' -Payload @{ message = "Pending restore failed: $($_.Exception.Message)" }
-            }
-            continue
-        }
-
-        $line = $readTask.Result
-        $readTask = [Console]::In.ReadLineAsync()
+        $line = [Console]::In.ReadLine()
         if ($null -eq $line) {
             break
         }

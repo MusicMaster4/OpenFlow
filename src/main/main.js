@@ -44,6 +44,7 @@ const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
 const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
 const WINDOWS_PASTE_TIMEOUT_MS = 4000;
+const AUDIO_PENDING_RESTORE_DELAYS_MS = [750, 2000, 5000, 10000];
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
@@ -325,6 +326,7 @@ const pendingOverlayFeedbacks = [];
 let currentDictationStartedAt = 0;
 let dictationSessionCounter = 0;
 let captureMuteDepth = 0;
+const pendingAudioRestoreTimers = new Set();
 let suppressStartSoundUntil = 0;
 let suppressStartRequestsUntil = 0;
 let ignoreNextHotkeyRelease = false;
@@ -2868,11 +2870,42 @@ function sendAudioCommand(type, payload = {}) {
   audioProcess.stdin.write(`${JSON.stringify({ type, payload })}\n`);
 }
 
+function clearPendingAudioRestores() {
+  for (const timer of pendingAudioRestoreTimers) {
+    clearTimeout(timer);
+  }
+  pendingAudioRestoreTimers.clear();
+}
+
+function schedulePendingAudioRestores() {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  clearPendingAudioRestores();
+
+  for (const delayMs of AUDIO_PENDING_RESTORE_DELAYS_MS) {
+    const timer = setTimeout(() => {
+      pendingAudioRestoreTimers.delete(timer);
+      if (captureMuteDepth > 0 || isQuitting) {
+        return;
+      }
+      sendAudioCommand('restore-pending');
+    }, delayMs);
+
+    pendingAudioRestoreTimers.add(timer);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+  }
+}
+
 function engageCaptureMute() {
   if (process.platform === 'win32') {
     if (!state.duckAudioEnabled) {
       return;
     }
+    clearPendingAudioRestores();
     captureMuteDepth += 1;
     if (captureMuteDepth > 1) {
       return;
@@ -2888,6 +2921,7 @@ function releaseCaptureMute(force = false) {
       captureMuteDepth = 0;
       if (shouldNotify) {
         sendAudioCommand('capture-end');
+        schedulePendingAudioRestores();
       }
       return;
     }
@@ -2901,6 +2935,7 @@ function releaseCaptureMute(force = false) {
       return;
     }
     sendAudioCommand('capture-end');
+    schedulePendingAudioRestores();
   }
 }
 
@@ -3679,6 +3714,8 @@ function handleAudioControllerEvent(event) {
       syncAudioControllerConfig(true);
       if (captureMuteDepth > 0) {
         sendAudioCommand('capture-begin');
+      } else {
+        sendAudioCommand('restore-pending');
       }
       break;
     case 'warning':
@@ -4501,6 +4538,7 @@ ipcMain.handle('copy-text', async (_event, text) => {
 function shutdownChildren() {
   resetDictationFeedbackState();
   releaseCaptureMute(true);
+  clearPendingAudioRestores();
 
   try {
     sendServiceCommand('shutdown');
