@@ -1,6 +1,6 @@
 # OpenFlow
 
-Current version: `1.3.037`
+Current version: `1.3.038`
 
 OpenFlow is a desktop voice dictation app for Windows and macOS built with Electron on the UI layer and Faster-Whisper for local transcription.
 
