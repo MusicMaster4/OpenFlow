@@ -7,6 +7,7 @@ $ErrorActionPreference = 'Stop'
 $coreAudioType = @"
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace OpenFlow.Audio
@@ -128,8 +129,10 @@ namespace OpenFlow.Audio
 
     public class AudioSessionSnapshot
     {
+        public string SessionId { get; set; }
         public string InstanceId { get; set; }
         public int ProcessId { get; set; }
+        public string ProcessName { get; set; }
         public float Volume { get; set; }
         public bool Muted { get; set; }
     }
@@ -161,6 +164,135 @@ namespace OpenFlow.Audio
             var iid = typeof(IAudioSessionManager2).GUID;
             Marshal.ThrowExceptionForHR(device.Activate(ref iid, ClsCtxAll, IntPtr.Zero, out manager));
             return (IAudioSessionManager2)manager;
+        }
+
+        private static string TryGetProcessName(int processId)
+        {
+            if (processId <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                using (var process = Process.GetProcessById(processId))
+                {
+                    return process.ProcessName;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void AddSnapshotByKey(
+            Dictionary<string, List<AudioSessionSnapshot>> map,
+            string key,
+            AudioSessionSnapshot snapshot)
+        {
+            if (string.IsNullOrEmpty(key) || snapshot == null)
+            {
+                return;
+            }
+
+            List<AudioSessionSnapshot> list;
+            if (!map.TryGetValue(key, out list))
+            {
+                list = new List<AudioSessionSnapshot>();
+                map[key] = list;
+            }
+
+            list.Add(snapshot);
+        }
+
+        private static AudioSessionSnapshot FindUnrestoredSnapshotByKey(
+            Dictionary<string, List<AudioSessionSnapshot>> map,
+            string key,
+            HashSet<AudioSessionSnapshot> restored)
+        {
+            if (string.IsNullOrEmpty(key))
+            {
+                return null;
+            }
+
+            List<AudioSessionSnapshot> snapshots;
+            if (!map.TryGetValue(key, out snapshots))
+            {
+                return null;
+            }
+
+            foreach (var snapshot in snapshots)
+            {
+                return snapshot;
+            }
+
+            return null;
+        }
+
+        private static AudioSessionSnapshot FindUnrestoredSnapshotByProcessId(
+            Dictionary<int, List<AudioSessionSnapshot>> map,
+            int processId,
+            string processName,
+            HashSet<AudioSessionSnapshot> restored)
+        {
+            if (processId <= 0)
+            {
+                return null;
+            }
+
+            List<AudioSessionSnapshot> snapshots;
+            if (!map.TryGetValue(processId, out snapshots))
+            {
+                return null;
+            }
+
+            foreach (var snapshot in snapshots)
+            {
+                if (restored.Contains(snapshot))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(snapshot.ProcessName) &&
+                    !string.IsNullOrEmpty(processName) &&
+                    !string.Equals(snapshot.ProcessName, processName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!restored.Contains(snapshot))
+                {
+                    return snapshot;
+                }
+            }
+
+            return null;
+        }
+
+        private static AudioSessionSnapshot FindRestoreSnapshot(
+            string instanceId,
+            string sessionId,
+            int processId,
+            string processName,
+            Dictionary<string, List<AudioSessionSnapshot>> byInstanceId,
+            Dictionary<string, List<AudioSessionSnapshot>> bySessionId,
+            Dictionary<int, List<AudioSessionSnapshot>> byProcessId,
+            HashSet<AudioSessionSnapshot> restored)
+        {
+            var snapshot = FindUnrestoredSnapshotByKey(byInstanceId, instanceId, restored);
+            if (snapshot != null)
+            {
+                return snapshot;
+            }
+
+            snapshot = FindUnrestoredSnapshotByKey(bySessionId, sessionId, restored);
+            if (snapshot != null)
+            {
+                return snapshot;
+            }
+
+            return FindUnrestoredSnapshotByProcessId(byProcessId, processId, processName, restored);
         }
 
         // Silence every audio session except the excluded process ids by MUTING them.
@@ -214,8 +346,25 @@ namespace OpenFlow.Audio
                             continue;
                         }
 
-                        string instanceId;
-                        Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
+                        string sessionId = null;
+                        try
+                        {
+                            Marshal.ThrowExceptionForHR(control2.GetSessionIdentifier(out sessionId));
+                        }
+                        catch
+                        {
+                            sessionId = null;
+                        }
+
+                        string instanceId = null;
+                        try
+                        {
+                            Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
+                        }
+                        catch
+                        {
+                            instanceId = null;
+                        }
                         if (string.IsNullOrEmpty(instanceId))
                         {
                             instanceId = processId.ToString() + ":" + index.ToString();
@@ -226,14 +375,22 @@ namespace OpenFlow.Audio
 
                         snapshots.Add(new AudioSessionSnapshot
                         {
+                            SessionId = sessionId,
                             InstanceId = instanceId,
                             ProcessId = processId,
+                            ProcessName = TryGetProcessName(processId),
                             Volume = originalVolume,
                             Muted = false,
                         });
 
                         var context = Guid.Empty;
                         Marshal.ThrowExceptionForHR(volume.SetMute(true, ref context));
+                    }
+                    catch
+                    {
+                        // Audio sessions can disappear while we enumerate them. Keep the
+                        // snapshots we already captured so one bad session cannot strand
+                        // earlier sessions in a muted state.
                     }
                     finally
                     {
@@ -255,15 +412,21 @@ namespace OpenFlow.Audio
 
         public static void Restore(List<AudioSessionSnapshot> snapshots)
         {
+            RestoreAndReturnPending(snapshots);
+        }
+
+        public static List<AudioSessionSnapshot> RestoreAndReturnPending(List<AudioSessionSnapshot> snapshots)
+        {
             if (snapshots == null || snapshots.Count == 0)
             {
-                return;
+                return new List<AudioSessionSnapshot>();
             }
 
-            var snapshotMap = new Dictionary<string, AudioSessionSnapshot>(StringComparer.OrdinalIgnoreCase);
+            var snapshotByInstanceId = new Dictionary<string, List<AudioSessionSnapshot>>(StringComparer.OrdinalIgnoreCase);
+            var snapshotBySessionId = new Dictionary<string, List<AudioSessionSnapshot>>(StringComparer.OrdinalIgnoreCase);
             // Also index by process id so that a session which expired and was recreated with a
             // new instance identifier (very common once an app goes silent) is still restored.
-            var snapshotByPid = new Dictionary<int, AudioSessionSnapshot>();
+            var snapshotByPid = new Dictionary<int, List<AudioSessionSnapshot>>();
             foreach (var snapshot in snapshots)
             {
                 if (snapshot == null)
@@ -271,17 +434,22 @@ namespace OpenFlow.Audio
                     continue;
                 }
 
-                if (!string.IsNullOrEmpty(snapshot.InstanceId) && !snapshotMap.ContainsKey(snapshot.InstanceId))
-                {
-                    snapshotMap[snapshot.InstanceId] = snapshot;
-                }
+                AddSnapshotByKey(snapshotByInstanceId, snapshot.InstanceId, snapshot);
+                AddSnapshotByKey(snapshotBySessionId, snapshot.SessionId, snapshot);
 
-                if (snapshot.ProcessId > 0 && !snapshotByPid.ContainsKey(snapshot.ProcessId))
+                if (snapshot.ProcessId > 0)
                 {
-                    snapshotByPid[snapshot.ProcessId] = snapshot;
+                    List<AudioSessionSnapshot> byPid;
+                    if (!snapshotByPid.TryGetValue(snapshot.ProcessId, out byPid))
+                    {
+                        byPid = new List<AudioSessionSnapshot>();
+                        snapshotByPid[snapshot.ProcessId] = byPid;
+                    }
+                    byPid.Add(snapshot);
                 }
             }
 
+            var restored = new HashSet<AudioSessionSnapshot>();
             IMMDevice device = null;
             IAudioSessionManager2 manager = null;
             IAudioSessionEnumerator enumerator = null;
@@ -307,22 +475,48 @@ namespace OpenFlow.Audio
                         control2 = (IAudioSessionControl2)control;
                         volume = (ISimpleAudioVolume)control;
 
-                        string instanceId;
-                        Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
-
-                        uint processIdRaw;
-                        Marshal.ThrowExceptionForHR(control2.GetProcessId(out processIdRaw));
-                        var processId = unchecked((int)processIdRaw);
-
-                        AudioSessionSnapshot snapshot = null;
-                        if (!string.IsNullOrEmpty(instanceId))
+                        string instanceId = null;
+                        try
                         {
-                            snapshotMap.TryGetValue(instanceId, out snapshot);
+                            Marshal.ThrowExceptionForHR(control2.GetSessionInstanceIdentifier(out instanceId));
                         }
-                        if (snapshot == null && processId > 0)
+                        catch
                         {
-                            snapshotByPid.TryGetValue(processId, out snapshot);
+                            instanceId = null;
                         }
+
+                        string sessionId = null;
+                        try
+                        {
+                            Marshal.ThrowExceptionForHR(control2.GetSessionIdentifier(out sessionId));
+                        }
+                        catch
+                        {
+                            sessionId = null;
+                        }
+
+                        var processId = 0;
+                        try
+                        {
+                            uint processIdRaw;
+                            Marshal.ThrowExceptionForHR(control2.GetProcessId(out processIdRaw));
+                            processId = unchecked((int)processIdRaw);
+                        }
+                        catch
+                        {
+                            processId = 0;
+                        }
+                        var processName = TryGetProcessName(processId);
+
+                        var snapshot = FindRestoreSnapshot(
+                            instanceId,
+                            sessionId,
+                            processId,
+                            processName,
+                            snapshotByInstanceId,
+                            snapshotBySessionId,
+                            snapshotByPid,
+                            restored);
                         if (snapshot == null)
                         {
                             continue;
@@ -333,6 +527,11 @@ namespace OpenFlow.Audio
                         // versions that lowered the volume) and always lift our mute.
                         Marshal.ThrowExceptionForHR(volume.SetMasterVolume(snapshot.Volume, ref context));
                         Marshal.ThrowExceptionForHR(volume.SetMute(snapshot.Muted, ref context));
+                        restored.Add(snapshot);
+                    }
+                    catch
+                    {
+                        // Keep this snapshot pending and continue with the remaining sessions.
                     }
                     finally
                     {
@@ -348,6 +547,17 @@ namespace OpenFlow.Audio
                 ReleaseCom(manager);
                 ReleaseCom(device);
             }
+
+            var pending = new List<AudioSessionSnapshot>();
+            foreach (var snapshot in snapshots)
+            {
+                if (snapshot != null && !restored.Contains(snapshot))
+                {
+                    pending.Add(snapshot);
+                }
+            }
+
+            return pending;
         }
 
         public static int RecoverSilentSessions(float restoreVolume)
@@ -462,7 +672,82 @@ $state = @{
     Running = $true
     ExcludedPids = @()
     DuckVolume = 0.0
-  Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
+    Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
+    PendingSnapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
+}
+
+$pendingRestoreIntervalMs = 1000
+
+function New-SnapshotList {
+    return New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
+}
+
+function Add-SnapshotIfMissing {
+    param(
+        [System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]]$Target,
+        [OpenFlow.Audio.AudioSessionSnapshot]$Snapshot
+    )
+
+    if ($null -eq $Target -or $null -eq $Snapshot) {
+        return
+    }
+
+    $snapshotKey = if (-not [string]::IsNullOrEmpty($Snapshot.InstanceId)) {
+        "instance:$($Snapshot.InstanceId)"
+    } elseif (-not [string]::IsNullOrEmpty($Snapshot.SessionId)) {
+        "session:$($Snapshot.SessionId)"
+    } elseif (-not [string]::IsNullOrEmpty($Snapshot.ProcessName)) {
+        "process:$($Snapshot.ProcessName)"
+    } elseif ($Snapshot.ProcessId -gt 0) {
+        "pid:$($Snapshot.ProcessId)"
+    } else {
+        ""
+    }
+
+    foreach ($existing in $Target) {
+        $existingKey = if (-not [string]::IsNullOrEmpty($existing.InstanceId)) {
+            "instance:$($existing.InstanceId)"
+        } elseif (-not [string]::IsNullOrEmpty($existing.SessionId)) {
+            "session:$($existing.SessionId)"
+        } elseif (-not [string]::IsNullOrEmpty($existing.ProcessName)) {
+            "process:$($existing.ProcessName)"
+        } elseif ($existing.ProcessId -gt 0) {
+            "pid:$($existing.ProcessId)"
+        } else {
+            ""
+        }
+
+        if ($snapshotKey -ne "" -and $existingKey -eq $snapshotKey) {
+            return
+        }
+    }
+
+    [void]$Target.Add($Snapshot)
+}
+
+function ConvertTo-SnapshotList {
+    param($Snapshots)
+
+    $typedSnapshots = New-SnapshotList
+    foreach ($snapshot in @($Snapshots)) {
+        if ($null -ne $snapshot) {
+            Add-SnapshotIfMissing -Target $typedSnapshots -Snapshot $snapshot
+        }
+    }
+
+    return ,$typedSnapshots
+}
+
+function Get-CombinedSnapshotState {
+    $combined = New-SnapshotList
+    foreach ($snapshot in @($state.PendingSnapshots)) {
+        Add-SnapshotIfMissing -Target $combined -Snapshot $snapshot
+    }
+    foreach ($snapshot in @($state.Snapshots)) {
+        Add-SnapshotIfMissing -Target $combined -Snapshot $snapshot
+    }
+
+    return ,$combined
 }
 
 function Emit-Event {
@@ -480,13 +765,20 @@ function Emit-Event {
 
 function Save-SnapshotState {
     param(
-  [System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]]$Snapshots
+        [System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]]$Snapshots
     )
+
+    if ($null -eq $Snapshots -or $Snapshots.Count -eq 0) {
+        Clear-SnapshotState
+        return
+    }
 
     $payload = @($Snapshots | ForEach-Object {
         @{
+            SessionId = $_.SessionId
             InstanceId = $_.InstanceId
             ProcessId = $_.ProcessId
+            ProcessName = $_.ProcessName
             Volume = $_.Volume
             Muted = $_.Muted
         }
@@ -507,10 +799,16 @@ function Load-SnapshotState {
 
     $items = @($raw | ConvertFrom-Json)
     return @($items | ForEach-Object {
-  $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
+        $snapshot = New-Object OpenFlow.Audio.AudioSessionSnapshot
+        if ($_.PSObject.Properties.Name -contains 'SessionId') {
+            $snapshot.SessionId = [string]$_.SessionId
+        }
         $snapshot.InstanceId = [string]$_.InstanceId
         if ($_.PSObject.Properties.Name -contains 'ProcessId') {
             $snapshot.ProcessId = [int]$_.ProcessId
+        }
+        if ($_.PSObject.Properties.Name -contains 'ProcessName') {
+            $snapshot.ProcessName = [string]$_.ProcessName
         }
         $snapshot.Volume = [float]$_.Volume
         $snapshot.Muted = [bool]$_.Muted
@@ -524,6 +822,30 @@ function Clear-SnapshotState {
     }
 }
 
+function Save-CurrentSnapshotState {
+    $combined = Get-CombinedSnapshotState
+    Save-SnapshotState -Snapshots $combined
+}
+
+function Set-PendingSnapshots {
+    param($Snapshots)
+
+    $state.PendingSnapshots = ConvertTo-SnapshotList -Snapshots $Snapshots
+    Save-CurrentSnapshotState
+}
+
+function Restore-SnapshotList {
+    param($Snapshots)
+
+    $typedSnapshots = ConvertTo-SnapshotList -Snapshots $Snapshots
+    if ($typedSnapshots.Count -eq 0) {
+        return ,(New-SnapshotList)
+    }
+
+    $pending = [OpenFlow.Audio.SessionVolumeController]::RestoreAndReturnPending($typedSnapshots)
+    return ,(ConvertTo-SnapshotList -Snapshots $pending)
+}
+
 function Restore-StaleSnapshotState {
     $snapshots = Load-SnapshotState
     if ($snapshots.Count -eq 0) {
@@ -531,20 +853,31 @@ function Restore-StaleSnapshotState {
         return $false
     }
 
-  $typedSnapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
-    foreach ($snapshot in $snapshots) {
-        [void]$typedSnapshots.Add($snapshot)
+    $pending = Restore-SnapshotList -Snapshots $snapshots
+    Set-PendingSnapshots -Snapshots $pending
+    return $true
+}
+
+function Restore-PendingSnapshots {
+    if ($state.PendingSnapshots.Count -eq 0) {
+        if (-not $state.CaptureActive -and (Test-Path $snapshotStatePath)) {
+            $state.PendingSnapshots = ConvertTo-SnapshotList -Snapshots (Load-SnapshotState)
+        }
     }
 
-  [OpenFlow.Audio.SessionVolumeController]::Restore($typedSnapshots)
-    Clear-SnapshotState
+    if ($state.PendingSnapshots.Count -eq 0) {
+        return $false
+    }
+
+    $pending = Restore-SnapshotList -Snapshots $state.PendingSnapshots
+    Set-PendingSnapshots -Snapshots $pending
     return $true
 }
 
 function Recover-AudioOutput {
     $restoredSnapshot = Restore-StaleSnapshotState
-  $recoveredSessions = [OpenFlow.Audio.SessionVolumeController]::RecoverSilentSessions([float]0.35)
-  [OpenFlow.Audio.SessionVolumeController]::EnsureDefaultEndpointAudible([float]0.35)
+    $recoveredSessions = [OpenFlow.Audio.SessionVolumeController]::RecoverSilentSessions([float]0.35)
+    [OpenFlow.Audio.SessionVolumeController]::EnsureDefaultEndpointAudible([float]0.35)
 
     return @{
         restored_snapshot = [bool]$restoredSnapshot
@@ -579,12 +912,14 @@ function Start-CaptureDuck {
         return
     }
 
-$snapshots = [OpenFlow.Audio.SessionVolumeController]::DuckExcept($state.ExcludedPids, $state.DuckVolume)
-$state.Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
+    Restore-PendingSnapshots | Out-Null
+
+    $snapshots = [OpenFlow.Audio.SessionVolumeController]::DuckExcept($state.ExcludedPids, $state.DuckVolume)
+    $state.Snapshots = New-SnapshotList
     foreach ($snapshot in $snapshots) {
-        [void]$state.Snapshots.Add($snapshot)
+        Add-SnapshotIfMissing -Target $state.Snapshots -Snapshot $snapshot
     }
-    Save-SnapshotState -Snapshots $state.Snapshots
+    Save-CurrentSnapshotState
 
     $state.CaptureActive = $true
 }
@@ -597,10 +932,25 @@ function Stop-CaptureDuck {
         return
     }
 
-[OpenFlow.Audio.SessionVolumeController]::Restore($state.Snapshots)
-$state.Snapshots = New-Object System.Collections.Generic.List[OpenFlow.Audio.AudioSessionSnapshot]
-    $state.CaptureActive = $false
-    Clear-SnapshotState
+    try {
+        $pendingActive = Restore-SnapshotList -Snapshots $state.Snapshots
+        $combinedPending = ConvertTo-SnapshotList -Snapshots $state.PendingSnapshots
+        foreach ($snapshot in @($pendingActive)) {
+            Add-SnapshotIfMissing -Target $combinedPending -Snapshot $snapshot
+        }
+        Set-PendingSnapshots -Snapshots $combinedPending
+    } catch {
+        $combinedPending = ConvertTo-SnapshotList -Snapshots $state.PendingSnapshots
+        foreach ($snapshot in @($state.Snapshots)) {
+            Add-SnapshotIfMissing -Target $combinedPending -Snapshot $snapshot
+        }
+        Set-PendingSnapshots -Snapshots $combinedPending
+        throw
+    } finally {
+        $state.Snapshots = New-SnapshotList
+        $state.CaptureActive = $false
+        Save-CurrentSnapshotState
+    }
 }
 
 if ($RecoverAudio) {
@@ -612,13 +962,24 @@ if ($RecoverAudio) {
 try {
     Restore-StaleSnapshotState | Out-Null
 } catch {
-    Clear-SnapshotState
+    Emit-Event -Type 'warning' -Payload @{ message = "Startup restore failed: $($_.Exception.Message)" }
 }
 Emit-Event -Type 'ready'
 
 try {
+    $readTask = [Console]::In.ReadLineAsync()
     while ($state.Running) {
-        $line = [Console]::In.ReadLine()
+        if (-not $readTask.Wait($pendingRestoreIntervalMs)) {
+            try {
+                Restore-PendingSnapshots | Out-Null
+            } catch {
+                Emit-Event -Type 'warning' -Payload @{ message = "Pending restore failed: $($_.Exception.Message)" }
+            }
+            continue
+        }
+
+        $line = $readTask.Result
+        $readTask = [Console]::In.ReadLineAsync()
         if ($null -eq $line) {
             break
         }
@@ -654,6 +1015,13 @@ try {
                     Stop-CaptureDuck
                 } catch {
                     Emit-Event -Type 'warning' -Payload @{ message = "Restore failed: $($_.Exception.Message)" }
+                }
+            }
+            'restore-pending' {
+                try {
+                    Restore-PendingSnapshots | Out-Null
+                } catch {
+                    Emit-Event -Type 'warning' -Payload @{ message = "Pending restore failed: $($_.Exception.Message)" }
                 }
             }
             'shutdown' {

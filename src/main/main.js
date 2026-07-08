@@ -47,6 +47,8 @@ const WINDOWS_PASTE_TIMEOUT_MS = 4000;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
+const OVERLAY_VISIBILITY_CHECK_INTERVAL_MS = 3000;
+const OVERLAY_RESUME_REASSERT_DELAYS_MS = [250, 1000, 2500, 5000];
 const APP_NAME = 'OpenFlow';
 const APP_ID = 'com.openflow.app';
 const UPDATE_REPO_OWNER = 'MusicMaster4';
@@ -1934,25 +1936,8 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
   }
 
   const normalizedPosition = normalizeOverlayPosition(preferredPosition);
-  const hadPosition = Boolean(normalizedPosition);
   const bounds = getOverlayBounds(normalizedPosition);
   overlayWindow.setBounds(bounds, false);
-
-  const wasClamped =
-    normalizedPosition &&
-    (normalizedPosition.x !== bounds.x || normalizedPosition.y !== bounds.y);
-
-  if (!hadPosition) {
-    state.overlayPosition = {
-      x: bounds.x,
-      y: bounds.y,
-    };
-  } else if (!persist && wasClamped) {
-    state.overlayPosition = {
-      x: bounds.x,
-      y: bounds.y,
-    };
-  }
 
   if (persist) {
     setState({
@@ -1961,29 +1946,83 @@ function positionOverlayWindow(preferredPosition = state.overlayPosition, persis
         y: bounds.y,
       },
     });
+  } else {
+    state.overlayPosition = {
+      x: bounds.x,
+      y: bounds.y,
+    };
   }
 
   return bounds;
 }
 
-function syncOverlayWindow() {
+function withOverlayWindow(action) {
   if (!overlayWindow || overlayWindow.isDestroyed()) {
     return;
   }
 
+  try {
+    action(overlayWindow);
+  } catch (_error) {
+    // Best effort. Native window state can temporarily reject changes during
+    // monitor, sleep, or fullscreen transitions.
+  }
+}
+
+function applyOverlayTopmostState() {
+  withOverlayWindow((windowRef) => {
+    windowRef.setSkipTaskbar(true);
+  });
+  withOverlayWindow((windowRef) => {
+    windowRef.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  });
+  withOverlayWindow((windowRef) => {
+    windowRef.setAlwaysOnTop(true, 'screen-saver');
+  });
+}
+
+function showOverlayWindowInactive() {
+  applyOverlayTopmostState();
+
+  withOverlayWindow((windowRef) => {
+    if (windowRef.isMinimized()) {
+      windowRef.restore();
+    }
+  });
+  withOverlayWindow((windowRef) => {
+    windowRef.showInactive();
+  });
+
+  applyOverlayTopmostState();
+
+  withOverlayWindow((windowRef) => {
+    if (typeof windowRef.moveTop === 'function') {
+      windowRef.moveTop();
+    }
+  });
+}
+
+function syncOverlayWindow() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) {
+    if (!state.showOverlayBar || isQuitting) {
+      return;
+    }
+
+    createOverlayWindow();
+  }
+
   positionOverlayWindow();
-  overlayWindow.setSkipTaskbar(true);
+  applyOverlayTopmostState();
 
   if (state.showOverlayBar) {
-    if (!overlayWindow.isVisible()) {
-      overlayWindow.showInactive();
-    }
+    showOverlayWindowInactive();
   } else if (overlayWindow.isVisible()) {
     overlayWindow.hide();
   }
 }
 
 let overlayRecoveryPending = false;
+let overlayVisibilityCheck = null;
 
 // If the overlay renderer crashes or hangs, recreate it so the indicator pill and
 // sound effects come back without the user having to restart the whole app.
@@ -2015,6 +2054,7 @@ function recoverOverlayWindow(delayMs = 400) {
 
 function resyncOverlayWindowPosition() {
   if (!overlayWindow || overlayWindow.isDestroyed()) {
+    syncOverlayWindow();
     return;
   }
 
@@ -2027,10 +2067,39 @@ function recoverOverlayWindowAfterResume() {
     return;
   }
 
-  setTimeout(resyncOverlayWindowPosition, 300);
-  // Windows can keep the transparent always-on-top child window in a stale input
-  // state after sleep/resume. Recreating it clears pointer capture and drag state.
+  for (const delayMs of OVERLAY_RESUME_REASSERT_DELAYS_MS) {
+    setTimeout(resyncOverlayWindowPosition, delayMs);
+  }
+  // Windows can keep the transparent always-on-top child window in a stale native
+  // state after sleep/resume. Recreating it clears stale visibility and z-order state.
   recoverOverlayWindow(900);
+}
+
+function startOverlayVisibilityWatchdog() {
+  if (overlayVisibilityCheck) {
+    return;
+  }
+
+  overlayVisibilityCheck = setInterval(() => {
+    if (!state.showOverlayBar || isQuitting) {
+      return;
+    }
+
+    resyncOverlayWindowPosition();
+  }, OVERLAY_VISIBILITY_CHECK_INTERVAL_MS);
+
+  if (typeof overlayVisibilityCheck.unref === 'function') {
+    overlayVisibilityCheck.unref();
+  }
+}
+
+function stopOverlayVisibilityWatchdog() {
+  if (!overlayVisibilityCheck) {
+    return;
+  }
+
+  clearInterval(overlayVisibilityCheck);
+  overlayVisibilityCheck = null;
 }
 
 function createOverlayWindow() {
@@ -2069,10 +2138,8 @@ function createOverlayWindow() {
     recoverOverlayWindow();
   });
 
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  applyOverlayTopmostState();
   overlayWindow.setIgnoreMouseEvents(false);
-  overlayWindow.setSkipTaskbar(true);
   overlayWindow.setMenuBarVisibility(false);
   overlayWindow.loadFile(path.join(getProjectRoot(), 'src', 'renderer', 'overlay.html'));
   overlayWindow.webContents.on('did-finish-load', () => {
@@ -2080,7 +2147,17 @@ function createOverlayWindow() {
     syncAudioControllerConfig();
   });
   overlayWindow.on('show', () => {
-    overlayWindow.setSkipTaskbar(true);
+    applyOverlayTopmostState();
+  });
+  overlayWindow.on('hide', () => {
+    if (state.showOverlayBar && !isQuitting) {
+      setTimeout(syncOverlayWindow, 200);
+    }
+  });
+  overlayWindow.on('minimize', () => {
+    if (state.showOverlayBar && !isQuitting) {
+      setTimeout(syncOverlayWindow, 0);
+    }
   });
   overlayWindow.on('close', (event) => {
     if (isQuitting) {
@@ -5076,6 +5153,7 @@ app.whenReady().then(() => {
   createTray();
   createWindow();
   createOverlayWindow();
+  startOverlayVisibilityWatchdog();
   bootAudioController();
   bootDictationService();
   bootHotkeyListener();
@@ -5100,6 +5178,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  stopOverlayVisibilityWatchdog();
 });
 
 app.on('will-quit', () => {
