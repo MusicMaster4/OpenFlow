@@ -224,6 +224,11 @@ namespace OpenFlow.Audio
 
             foreach (var snapshot in snapshots)
             {
+                if (restored.Contains(snapshot))
+                {
+                    continue;
+                }
+
                 return snapshot;
             }
 
