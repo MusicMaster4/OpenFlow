@@ -3742,8 +3742,9 @@ function handleAudioControllerEvent(event) {
       if (captureMuteDepth > 0) {
         sendAudioCommand('capture-begin');
       } else {
-        // Reload any disk-pending ducks left from a previous crash; follow-up
-        // retries are armed only if restore-complete reports remaining pending.
+        // Reload any disk-pending ducks left from a previous crash.
+        // Arm a fresh bounded follow-up budget (controller restart recovery).
+        pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
         sendAudioCommand('restore-pending');
       }
       break;
@@ -3751,11 +3752,8 @@ function handleAudioControllerEvent(event) {
       const pendingCount = Number(event?.payload?.pending);
       if (Number.isFinite(pendingCount) && pendingCount > 0 && captureMuteDepth <= 0 && !isQuitting) {
         // Controller still has unmatched ducked sessions (e.g. Chrome recreated later).
-        // Keep retrying beyond the fixed delay list so long-silence rebirth is covered.
-        if (pendingAudioRestoreFollowupsRemaining <= 0 && pendingAudioRestoreTimers.size === 0) {
-          // No capture-end schedule is active (e.g. controller restart recovery).
-          pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
-        }
+        // scheduleFollowupPendingAudioRestore no-ops once the budget is exhausted —
+        // do not re-arm here, or unresolvable pending sessions retry forever.
         scheduleFollowupPendingAudioRestore();
       } else if (Number.isFinite(pendingCount) && pendingCount === 0) {
         pendingAudioRestoreFollowupsRemaining = 0;
