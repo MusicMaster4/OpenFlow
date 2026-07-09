@@ -368,9 +368,82 @@ namespace OpenFlow.Audio
             return live.Muted || live.Volume <= NearSilentVolume;
         }
 
+        private static HashSet<string> GetProcessNamesAllowingFallback(
+            List<AudioSessionSnapshot> snapshots,
+            List<LiveAudioSession> liveSessions)
+        {
+            var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (snapshots == null || snapshots.Count == 0 || liveSessions == null)
+            {
+                return allowed;
+            }
+
+            var snapshotCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var snapshot in snapshots)
+            {
+                if (snapshot == null || string.IsNullOrEmpty(snapshot.ProcessName))
+                {
+                    continue;
+                }
+
+                int count;
+                snapshotCounts.TryGetValue(snapshot.ProcessName, out count);
+                snapshotCounts[snapshot.ProcessName] = count + 1;
+            }
+
+            var duckedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var totalCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var live in liveSessions)
+            {
+                if (live == null || string.IsNullOrEmpty(live.ProcessName))
+                {
+                    continue;
+                }
+
+                int total;
+                totalCounts.TryGetValue(live.ProcessName, out total);
+                totalCounts[live.ProcessName] = total + 1;
+
+                if (!LooksDucked(live))
+                {
+                    continue;
+                }
+
+                int ducked;
+                duckedCounts.TryGetValue(live.ProcessName, out ducked);
+                duckedCounts[live.ProcessName] = ducked + 1;
+            }
+
+            foreach (var pair in snapshotCounts)
+            {
+                int ducked;
+                int total;
+                if (!duckedCounts.TryGetValue(pair.Key, out ducked))
+                {
+                    ducked = 0;
+                }
+
+                if (!totalCounts.TryGetValue(pair.Key, out total))
+                {
+                    total = 0;
+                }
+
+                // Process-name-only restore is safe only when every live session for that
+                // process is still ducked and counts line up with pending snapshots — avoids
+                // restoring an unrelated muted Chrome tab while the real duck is still pending.
+                if (pair.Value > 0 && pair.Value == ducked && ducked == total)
+                {
+                    allowed.Add(pair.Key);
+                }
+            }
+
+            return allowed;
+        }
+
         private static AudioSessionSnapshot FindRestoreSnapshotForLive(
             LiveAudioSession live,
             bool allowProcessNameFallback,
+            HashSet<string> processNamesAllowingFallback,
             Dictionary<string, List<AudioSessionSnapshot>> byInstanceId,
             Dictionary<string, List<AudioSessionSnapshot>> bySessionId,
             Dictionary<int, List<AudioSessionSnapshot>> byProcessId,
@@ -402,8 +475,11 @@ namespace OpenFlow.Audio
 
             // Process-name fallback: Chrome/media apps often recycle PID + instance id after a
             // long silence. Only use this when allowed (typically for still-ducked live sessions)
-            // so we never leave a muted chrome.exe stranded while a new healthy stream steals the snapshot.
-            if (allowProcessNameFallback)
+            // and when pending/live counts are unambiguous for that process name.
+            if (allowProcessNameFallback &&
+                processNamesAllowingFallback != null &&
+                !string.IsNullOrEmpty(live.ProcessName) &&
+                processNamesAllowingFallback.Contains(live.ProcessName))
             {
                 return FindUnrestoredSnapshotByProcessName(byProcessName, live.ProcessName, restored);
             }
@@ -467,6 +543,7 @@ namespace OpenFlow.Audio
 
             var restored = new HashSet<AudioSessionSnapshot>();
             var liveList = liveSessions ?? new List<LiveAudioSession>();
+            var processNamesAllowingFallback = GetProcessNamesAllowingFallback(snapshots, liveList);
 
             // Pass 1: fix sessions that still look ducked, including process-name fallback for PID drift.
             foreach (var live in liveList)
@@ -479,6 +556,7 @@ namespace OpenFlow.Audio
                 var snapshot = FindRestoreSnapshotForLive(
                     live,
                     true,
+                    processNamesAllowingFallback,
                     byInstanceId,
                     bySessionId,
                     byProcessId,
@@ -504,6 +582,7 @@ namespace OpenFlow.Audio
                 var snapshot = FindRestoreSnapshotForLive(
                     live,
                     false,
+                    null,
                     byInstanceId,
                     bySessionId,
                     byProcessId,
@@ -1786,6 +1865,18 @@ function Invoke-DuckRestoreSelfTest {
     )
     Assert-SelfTest -Name 'healthy-stream-does-not-steal-process-name-snapshot' -Condition (
         $planHold.Matches.Count -eq 0 -and $planHold.Pending.Count -eq 1
+    ) -Failures $failures
+
+    # 5b) Unrelated muted tab must not consume a pending snapshot for another tab
+    $snapOtherTab = New-TestSnapshot -InstanceId 'other-old' -SessionId 'other-sess' -ProcessId 72 -ProcessName 'chrome'
+    $liveOtherMuted = New-TestLiveSession -InstanceId 'other-muted' -SessionId 'other-muted-sess' -ProcessId 73 -ProcessName 'chrome' -Muted $true
+    $liveOtherHealthy = New-TestLiveSession -InstanceId 'other-healthy' -SessionId 'other-healthy-sess' -ProcessId 74 -ProcessName 'chrome' -Muted $false -Volume 0.9
+    $planOtherTab = [OpenFlow.Audio.SessionVolumeController]::MatchSnapshotsForRestore(
+        (New-SnapshotListOf $snapOtherTab),
+        (New-LiveSessionListOf $liveOtherMuted $liveOtherHealthy)
+    )
+    Assert-SelfTest -Name 'unrelated-muted-tab-skips-process-name-fallback' -Condition (
+        $planOtherTab.Matches.Count -eq 0 -and $planOtherTab.Pending.Count -eq 1
     ) -Failures $failures
 
     # 6) Previously-ducked detection for re-owning leftover mutes
