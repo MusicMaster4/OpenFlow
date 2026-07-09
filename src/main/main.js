@@ -44,7 +44,14 @@ const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
 const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
 const WINDOWS_PASTE_TIMEOUT_MS = 4000;
-const AUDIO_PENDING_RESTORE_DELAYS_MS = [750, 2000, 5000, 10000];
+// Burst early after capture-end, then keep retrying long enough that media apps
+// (Chrome etc.) which recycle sessions after a long silence still get unmuted.
+// Final delay is 5 minutes so late session rebirth is not abandoned after ~10s.
+const AUDIO_PENDING_RESTORE_DELAYS_MS = [
+  400, 1000, 2000, 4000, 8000, 15000, 30000, 60000, 120000, 180000, 300000,
+];
+const AUDIO_PENDING_RESTORE_FOLLOWUP_MS = 60000;
+const AUDIO_PENDING_RESTORE_FOLLOWUP_MAX = 10;
 const OVERLAY_WIDTH = 96;
 const OVERLAY_HEIGHT = 34;
 const OVERLAY_MARGIN_BOTTOM = 22;
@@ -327,6 +334,7 @@ let currentDictationStartedAt = 0;
 let dictationSessionCounter = 0;
 let captureMuteDepth = 0;
 const pendingAudioRestoreTimers = new Set();
+let pendingAudioRestoreFollowupsRemaining = 0;
 let suppressStartSoundUntil = 0;
 let suppressStartRequestsUntil = 0;
 let ignoreNextHotkeyRelease = false;
@@ -2875,6 +2883,22 @@ function clearPendingAudioRestores() {
     clearTimeout(timer);
   }
   pendingAudioRestoreTimers.clear();
+  pendingAudioRestoreFollowupsRemaining = 0;
+}
+
+function scheduleAudioRestoreTimer(delayMs) {
+  const timer = setTimeout(() => {
+    pendingAudioRestoreTimers.delete(timer);
+    if (captureMuteDepth > 0 || isQuitting) {
+      return;
+    }
+    sendAudioCommand('restore-pending');
+  }, delayMs);
+
+  pendingAudioRestoreTimers.add(timer);
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
 }
 
 function schedulePendingAudioRestores() {
@@ -2883,21 +2907,24 @@ function schedulePendingAudioRestores() {
   }
 
   clearPendingAudioRestores();
+  pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
 
   for (const delayMs of AUDIO_PENDING_RESTORE_DELAYS_MS) {
-    const timer = setTimeout(() => {
-      pendingAudioRestoreTimers.delete(timer);
-      if (captureMuteDepth > 0 || isQuitting) {
-        return;
-      }
-      sendAudioCommand('restore-pending');
-    }, delayMs);
-
-    pendingAudioRestoreTimers.add(timer);
-    if (typeof timer.unref === 'function') {
-      timer.unref();
-    }
+    scheduleAudioRestoreTimer(delayMs);
   }
+}
+
+function scheduleFollowupPendingAudioRestore() {
+  if (process.platform !== 'win32' || isQuitting || captureMuteDepth > 0) {
+    return;
+  }
+
+  if (pendingAudioRestoreFollowupsRemaining <= 0) {
+    return;
+  }
+
+  pendingAudioRestoreFollowupsRemaining -= 1;
+  scheduleAudioRestoreTimer(AUDIO_PENDING_RESTORE_FOLLOWUP_MS);
 }
 
 function engageCaptureMute() {
@@ -3715,9 +3742,24 @@ function handleAudioControllerEvent(event) {
       if (captureMuteDepth > 0) {
         sendAudioCommand('capture-begin');
       } else {
+        // Reload any disk-pending ducks left from a previous crash.
+        // Arm a fresh bounded follow-up budget (controller restart recovery).
+        pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
         sendAudioCommand('restore-pending');
       }
       break;
+    case 'restore-complete': {
+      const pendingCount = Number(event?.payload?.pending);
+      if (Number.isFinite(pendingCount) && pendingCount > 0 && captureMuteDepth <= 0 && !isQuitting) {
+        // Controller still has unmatched ducked sessions (e.g. Chrome recreated later).
+        // scheduleFollowupPendingAudioRestore no-ops once the budget is exhausted —
+        // do not re-arm here, or unresolvable pending sessions retry forever.
+        scheduleFollowupPendingAudioRestore();
+      } else if (Number.isFinite(pendingCount) && pendingCount === 0) {
+        pendingAudioRestoreFollowupsRemaining = 0;
+      }
+      break;
+    }
     case 'warning':
       if (message) {
         console.warn('[audio-mute]', message);
