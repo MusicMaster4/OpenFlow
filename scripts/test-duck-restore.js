@@ -76,6 +76,7 @@ function runControllerSelfTest() {
     'delayed-reappearance-first-miss-pending',
     'delayed-reappearance-second-pass-restores',
     'healthy-stream-does-not-steal-process-name-snapshot',
+    'unrelated-muted-tab-skips-process-name-fallback',
     'previously-ducked-process-name-match',
     'stable-session-id-after-instance-recycle',
   ];

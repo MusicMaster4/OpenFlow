@@ -2886,11 +2886,14 @@ function clearPendingAudioRestores() {
   pendingAudioRestoreFollowupsRemaining = 0;
 }
 
-function scheduleAudioRestoreTimer(delayMs) {
+function scheduleAudioRestoreTimer(delayMs, onFire) {
   const timer = setTimeout(() => {
     pendingAudioRestoreTimers.delete(timer);
     if (captureMuteDepth > 0 || isQuitting) {
       return;
+    }
+    if (typeof onFire === 'function') {
+      onFire();
     }
     sendAudioCommand('restore-pending');
   }, delayMs);
@@ -2907,10 +2910,22 @@ function schedulePendingAudioRestores() {
   }
 
   clearPendingAudioRestores();
-  pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
+  // Defer follow-up budget until fixed delays finish so early restore-complete
+  // responses do not exhaust retries before the final 5-minute restore attempt.
+  pendingAudioRestoreFollowupsRemaining = 0;
 
-  for (const delayMs of AUDIO_PENDING_RESTORE_DELAYS_MS) {
-    scheduleAudioRestoreTimer(delayMs);
+  const delays = AUDIO_PENDING_RESTORE_DELAYS_MS;
+  for (let index = 0; index < delays.length; index += 1) {
+    const delayMs = delays[index];
+    const isLastFixedDelay = index === delays.length - 1;
+    scheduleAudioRestoreTimer(
+      delayMs,
+      isLastFixedDelay
+        ? () => {
+            pendingAudioRestoreFollowupsRemaining = AUDIO_PENDING_RESTORE_FOLLOWUP_MAX;
+          }
+        : undefined,
+    );
   }
 }
 
@@ -3752,8 +3767,8 @@ function handleAudioControllerEvent(event) {
       const pendingCount = Number(event?.payload?.pending);
       if (Number.isFinite(pendingCount) && pendingCount > 0 && captureMuteDepth <= 0 && !isQuitting) {
         // Controller still has unmatched ducked sessions (e.g. Chrome recreated later).
-        // scheduleFollowupPendingAudioRestore no-ops once the budget is exhausted —
-        // do not re-arm here, or unresolvable pending sessions retry forever.
+        // scheduleFollowupPendingAudioRestore no-ops while fixed timers run or once the
+        // budget is exhausted — do not re-arm here, or unresolvable pending sessions retry forever.
         scheduleFollowupPendingAudioRestore();
       } else if (Number.isFinite(pendingCount) && pendingCount === 0) {
         pendingAudioRestoreFollowupsRemaining = 0;
