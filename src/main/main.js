@@ -1794,7 +1794,6 @@ async function refreshOpenRouterModels() {
     setState({
       openRouterModelsStatus: 'error',
       openRouterModelsError: String((error && error.message) || error),
-      error: String((error && error.message) || error),
     });
   }
 
