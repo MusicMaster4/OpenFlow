@@ -417,6 +417,11 @@ h1, h2, h3 {
   padding-right: 38px;
 }
 
+.search-field--clearable input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .search-clear {
   position: absolute;
   right: 8px;
