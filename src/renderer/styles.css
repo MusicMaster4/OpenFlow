@@ -391,10 +391,58 @@ h1, h2, h3 {
 
 .history-toolbar {
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history-toolbar .search-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-toolbar .secondary-button {
+  flex: 0 0 auto;
 }
 
 .search-field {
   display: block;
+}
+
+.search-field--clearable {
+  position: relative;
+}
+
+.search-field--clearable input {
+  padding-right: 38px;
+}
+
+.search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-clear:hover {
+  background: var(--panel-bg-subtle);
+  color: var(--text);
+}
+
+.search-clear.hidden {
+  display: none;
 }
 
 .search-field--settings {
@@ -480,6 +528,31 @@ h1, h2, h3 {
   gap: 16px;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.history-item__body mark {
+  /* Translucent amber keeps readable contrast in both dark and light themes. */
+  background: rgba(245, 158, 11, 0.35);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.history-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.history-delete {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.history-item:hover .history-delete,
+.history-delete:focus-visible {
+  opacity: 1;
 }
 
 .copy-button {
@@ -889,6 +962,27 @@ h1, h2, h3 {
 .dictionary-toolbar__title h2 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.dictionary-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.reset-position-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.reset-position-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .dictionary-search {
