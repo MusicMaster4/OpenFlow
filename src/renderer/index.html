@@ -84,7 +84,7 @@
             </div>
 
             <div class="history-toolbar">
-              <label class="search-field" for="history-search">
+              <label class="search-field search-field--clearable" for="history-search">
                 <span data-i18n="search">Search</span>
                 <input
                   id="history-search"
@@ -93,7 +93,16 @@
                   data-i18n-placeholder="historySearchPlaceholder"
                   placeholder="Search words in transcriptions..."
                 />
+                <button
+                  class="search-clear hidden"
+                  id="history-search-clear"
+                  type="button"
+                  aria-label="Clear search"
+                >&times;</button>
               </label>
+              <button class="secondary-button" id="export-history" type="button" data-i18n="exportHistory">
+                Export
+              </button>
             </div>
 
             <div class="history-list" id="history-list">
@@ -217,6 +226,18 @@
               </div>
               <span class="toggle-switch">
                 <input id="launch-at-login" type="checkbox" />
+                <span></span>
+              </span>
+            </label>
+            <label class="toggle-card" for="start-hidden">
+              <div>
+                <strong data-i18n="startHidden">Start minimized to tray</strong>
+                <p data-i18n="startHiddenCopy">
+                  Keep the main window hidden when OpenFlow starts. Use the tray icon to open it.
+                </p>
+              </div>
+              <span class="toggle-switch">
+                <input id="start-hidden" type="checkbox" />
                 <span></span>
               </span>
             </label>
@@ -431,6 +452,14 @@
                 <span></span>
               </span>
             </label>
+            <div class="reset-position-row">
+              <p data-i18n="resetOverlayPositionCopy">
+                Moved the pill somewhere awkward? Bring it back to the default spot.
+              </p>
+              <button class="secondary-button" id="reset-overlay-position" type="button" data-i18n="resetOverlayPosition">
+                Reset position
+              </button>
+            </div>
           </div>
 
           <div class="panel--settings">
@@ -684,6 +713,15 @@
                   placeholder="Search rules..."
                   autocomplete="off"
                 />
+              </div>
+
+              <div class="dictionary-toolbar__actions">
+                <button class="secondary-button" id="import-dictionary" type="button" data-i18n="importDictionary">
+                  Import
+                </button>
+                <button class="secondary-button" id="export-dictionary" type="button" data-i18n="exportDictionary">
+                  Export
+                </button>
               </div>
             </div>
 

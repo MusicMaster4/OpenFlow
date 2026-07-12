@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('flowLocal', {
   previewOverlayStyle: (patch) => ipcRenderer.send('preview-overlay-style', patch),
   resetModelStats: () => ipcRenderer.invoke('reset-model-stats'),
   copyText: (text) => ipcRenderer.invoke('copy-text', text),
+  deleteHistoryEntry: (entryKey) => ipcRenderer.invoke('delete-history-entry', entryKey),
+  exportHistory: () => ipcRenderer.invoke('export-history'),
+  exportDictionary: () => ipcRenderer.invoke('export-dictionary'),
+  importDictionary: () => ipcRenderer.invoke('import-dictionary'),
+  resetOverlayPosition: () => ipcRenderer.invoke('reset-overlay-position'),
   onStateUpdate: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('app-state', listener);
