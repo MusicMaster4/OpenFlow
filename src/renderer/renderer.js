@@ -146,6 +146,24 @@ const TRANSLATIONS = {
     fillRuleError: 'Add at least one variation to replace.',
     copy: 'Copy',
     copied: 'Copied',
+    deleteEntry: 'Delete',
+    exportHistory: 'Export',
+    historyExported: 'History exported ({count} messages).',
+    historyExportEmpty: 'No transcriptions to export.',
+    exportFailed: 'Export failed: {message}',
+    confirmReset: 'Click again to confirm',
+    startHidden: 'Start minimized to tray',
+    startHiddenCopy: 'Keep the main window hidden when OpenFlow starts. Use the tray icon to open it.',
+    resetOverlayPosition: 'Reset position',
+    resetOverlayPositionCopy: 'Moved the pill somewhere awkward? Bring it back to the default spot.',
+    overlayPositionReset: 'Floating bar is back at the default position.',
+    exportDictionary: 'Export',
+    importDictionary: 'Import',
+    dictionaryExported: 'Dictionary exported ({count} rules).',
+    dictionaryExportEmpty: 'No rules to export.',
+    dictionaryImported: '{count} rule(s) imported.',
+    dictionaryImportNone: 'No new rules to import.',
+    dictionaryImportInvalid: 'This file is not a valid dictionary export.',
     loadingStatusTitle: 'Loading model',
     loadingStatusDetail: '',
     loadingStatusHint: '',
@@ -304,6 +322,24 @@ const TRANSLATIONS = {
     fillRuleError: 'Adicione pelo menos uma variação para substituir.',
     copy: 'Copiar',
     copied: 'Copiado',
+    deleteEntry: 'Excluir',
+    exportHistory: 'Exportar',
+    historyExported: 'Histórico exportado ({count} mensagens).',
+    historyExportEmpty: 'Nenhuma transcrição para exportar.',
+    exportFailed: 'Falha ao exportar: {message}',
+    confirmReset: 'Clique de novo para confirmar',
+    startHidden: 'Iniciar minimizado na bandeja',
+    startHiddenCopy: 'Mantém a janela principal oculta quando o OpenFlow abre. Use o ícone da bandeja para abrir.',
+    resetOverlayPosition: 'Restaurar posição',
+    resetOverlayPositionCopy: 'Moveu a barra para um lugar ruim? Traga ela de volta para o lugar padrão.',
+    overlayPositionReset: 'Barra flutuante de volta à posição padrão.',
+    exportDictionary: 'Exportar',
+    importDictionary: 'Importar',
+    dictionaryExported: 'Dicionário exportado ({count} regras).',
+    dictionaryExportEmpty: 'Nenhuma regra para exportar.',
+    dictionaryImported: '{count} regra(s) importada(s).',
+    dictionaryImportNone: 'Nenhuma regra nova para importar.',
+    dictionaryImportInvalid: 'Este arquivo não é um dicionário exportado válido.',
     loadingStatusTitle: 'Carregando o modelo',
     loadingStatusDetail: '',
     loadingStatusHint: '',
@@ -600,6 +636,8 @@ const els = {
   historyList: document.getElementById('history-list'),
   historyCount: document.getElementById('history-count'),
   historySearch: document.getElementById('history-search'),
+  historySearchClear: document.getElementById('history-search-clear'),
+  exportHistory: document.getElementById('export-history'),
   historyCopy: document.getElementById('history-copy'),
   shortcutLabel: document.getElementById('shortcut-label'),
   pasteShortcutLabel: document.getElementById('paste-shortcut-label'),
@@ -655,6 +693,8 @@ const els = {
   dictionaryList: document.getElementById('dictionary-list'),
   dictionaryCount: document.getElementById('dictionary-count'),
   dictionarySearch: document.getElementById('dictionary-search'),
+  exportDictionary: document.getElementById('export-dictionary'),
+  importDictionary: document.getElementById('import-dictionary'),
   cancelDictionaryEdit: document.getElementById('cancel-dictionary-edit'),
   submitDictionaryRule: document.getElementById('submit-dictionary-rule'),
   openSettings: document.getElementById('open-settings'),
@@ -670,6 +710,8 @@ const els = {
   shortcutCaptureKeys: document.getElementById('shortcut-capture-keys'),
   pasteShortcutCaptureKeys: document.getElementById('paste-shortcut-capture-keys'),
   duckAudio: document.getElementById('duck-audio'),
+  startHidden: document.getElementById('start-hidden'),
+  resetOverlayPosition: document.getElementById('reset-overlay-position'),
   overlayOpacity: document.getElementById('overlay-opacity'),
   overlayOpacityValue: document.getElementById('overlay-opacity-value'),
   overlayScale: document.getElementById('overlay-scale'),
@@ -1173,6 +1215,33 @@ function renderInterfaceLanguages() {
     .join('');
 }
 
+function highlightMatch(text, query) {
+  const value = String(text ?? '');
+  if (!query) {
+    return esc(value);
+  }
+
+  const needle = query.toLocaleLowerCase(locale());
+  const haystack = value.toLocaleLowerCase(locale());
+  if (haystack.length !== value.length) {
+    // Case folding changed string length; offsets would be unreliable.
+    return esc(value);
+  }
+
+  let result = '';
+  let index = 0;
+  while (index <= value.length) {
+    const found = haystack.indexOf(needle, index);
+    if (found === -1) {
+      result += esc(value.slice(index));
+      break;
+    }
+    result += `${esc(value.slice(index, found))}<mark>${esc(value.slice(found, found + needle.length))}</mark>`;
+    index = found + needle.length;
+  }
+  return result;
+}
+
 function renderHistory(history, total) {
   const list = Array.isArray(history) ? history : [];
   const signature = [
@@ -1230,7 +1299,7 @@ function renderHistory(history, total) {
             <span>${timestamp.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })}</span>
           </div>
           <div class="history-item__body">
-            <p>${esc(entry.text)}</p>
+            <p>${highlightMatch(entry.text, query)}</p>
             <div class="history-item__meta">
               <span>${esc(modelLabel(entry.model))}</span>
               <span>${esc(capitalizeLanguageLabel(langName(entry.language || 'en')))}</span>
@@ -1239,7 +1308,10 @@ function renderHistory(history, total) {
               <span>${intFmt(entry.wordCount || 0)} ${wordsLabel}</span>
             </div>
           </div>
-          <button class="copy-button" data-history-index="${index}" type="button">${esc(t('copy'))}</button>
+          <div class="history-item__actions">
+            <button class="copy-button" data-history-index="${index}" type="button">${esc(t('copy'))}</button>
+            <button class="icon-button icon-button--danger history-delete" data-history-delete="${index}" type="button" title="${esc(t('deleteEntry'))}" aria-label="${esc(t('deleteEntry'))}">${DICTIONARY_ICONS.trash}</button>
+          </div>
         </article>
       `;
     })
@@ -1673,6 +1745,7 @@ function renderState(state) {
   els.transcribeCancelledRecordings.checked = Boolean(state.transcribeCancelledRecordings);
   els.autoEnableHandsFreeMode.checked = Boolean(state.autoEnableHandsFreeMode);
   els.duckAudio.checked = Boolean(state.duckAudioEnabled);
+  els.startHidden.checked = Boolean(state.startHidden);
   els.overlayDynamicSize.checked = Boolean(state.overlayDynamicSize);
 
   // Don't fight the user while they are dragging a slider or recording a shortcut.
@@ -2079,7 +2152,23 @@ function setupHandlers() {
     }
   });
 
+  let resetStatsConfirmTimer = null;
+  const restoreResetStatsButton = () => {
+    if (resetStatsConfirmTimer) {
+      window.clearTimeout(resetStatsConfirmTimer);
+      resetStatsConfirmTimer = null;
+    }
+    delete els.resetStats.dataset.confirming;
+    els.resetStats.textContent = t('resetAverage');
+  };
   els.resetStats.addEventListener('click', async () => {
+    if (els.resetStats.dataset.confirming !== 'true') {
+      els.resetStats.dataset.confirming = 'true';
+      els.resetStats.textContent = t('confirmReset');
+      resetStatsConfirmTimer = window.setTimeout(restoreResetStatsButton, 3000);
+      return;
+    }
+    restoreResetStatsButton();
     renderState(await window.flowLocal.resetModelStats());
   });
 
@@ -2291,6 +2380,13 @@ function setupHandlers() {
   els.duckAudio.addEventListener('change', async () => {
     renderState(await window.flowLocal.updateSettings({ duckAudioEnabled: els.duckAudio.checked }));
   });
+  els.startHidden.addEventListener('change', async () => {
+    renderState(await window.flowLocal.updateSettings({ startHidden: els.startHidden.checked }));
+  });
+  els.resetOverlayPosition.addEventListener('click', async () => {
+    renderState(await window.flowLocal.resetOverlayPosition());
+    showToast(t('overlayPositionReset'));
+  });
 
   els.overlayOpacity.addEventListener('input', () => {
     els.overlayOpacityValue.textContent = `${els.overlayOpacity.value}%`;
@@ -2327,12 +2423,47 @@ function setupHandlers() {
     true,
   );
 
-  els.historySearch.addEventListener('input', () => {
+  const applyHistoryFilter = () => {
     historyFilter = els.historySearch.value || '';
+    els.historySearchClear.classList.toggle('hidden', !historyFilter);
     if (lastState) renderHistory(lastState.history, lastState.historyTotal);
+  };
+  let historySearchDebounce = null;
+  els.historySearch.addEventListener('input', () => {
+    els.historySearchClear.classList.toggle('hidden', !els.historySearch.value);
+    // Debounced: re-rendering the full list on every keystroke gets slow once
+    // "keep all transcriptions" grows the history into the thousands.
+    if (historySearchDebounce) window.clearTimeout(historySearchDebounce);
+    historySearchDebounce = window.setTimeout(applyHistoryFilter, 150);
+  });
+  els.historySearchClear.addEventListener('click', () => {
+    els.historySearch.value = '';
+    applyHistoryFilter();
+    els.historySearch.focus();
+  });
+
+  els.exportHistory.addEventListener('click', async () => {
+    const result = await window.flowLocal.exportHistory();
+    if (result?.status === 'saved') {
+      showToast(template('historyExported', { count: result.count }));
+    } else if (result?.status === 'empty') {
+      showToast(t('historyExportEmpty'));
+    } else if (result?.status === 'error') {
+      showToast(template('exportFailed', { message: result.message || '' }));
+    }
   });
 
   els.historyList.addEventListener('click', async (event) => {
+    const deleteButton = event.target.closest('[data-history-delete]');
+    if (deleteButton) {
+      const entry = renderedHistory[Number(deleteButton.getAttribute('data-history-delete'))];
+      if (!entry) return;
+      renderState(
+        await window.flowLocal.deleteHistoryEntry({ timestamp: entry.timestamp, text: entry.text }),
+      );
+      return;
+    }
+
     const button = event.target.closest('[data-history-index]');
     if (!button) return;
     const entry = renderedHistory[Number(button.getAttribute('data-history-index'))];
@@ -2418,7 +2549,41 @@ function setupHandlers() {
     resetDictionaryForm(getDictionaryFallbackLanguages());
   });
 
+  els.exportDictionary.addEventListener('click', async () => {
+    const result = await window.flowLocal.exportDictionary();
+    if (result?.status === 'saved') {
+      showToast(template('dictionaryExported', { count: result.count }));
+    } else if (result?.status === 'empty') {
+      showToast(t('dictionaryExportEmpty'));
+    } else if (result?.status === 'error') {
+      showToast(template('exportFailed', { message: result.message || '' }));
+    }
+  });
+
+  els.importDictionary.addEventListener('click', async () => {
+    const result = await window.flowLocal.importDictionary();
+    if (result?.status === 'imported') {
+      renderState(await window.flowLocal.getState());
+      showToast(template('dictionaryImported', { count: result.count }));
+    } else if (result?.status === 'none') {
+      showToast(t('dictionaryImportNone'));
+    } else if (result?.status === 'invalid') {
+      showToast(t('dictionaryImportInvalid'));
+    }
+  });
+
   window.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'f') {
+      event.preventDefault();
+      if (dictionaryOpen) {
+        els.dictionarySearch.focus();
+        els.dictionarySearch.select();
+      } else if (!settingsOpen && !advancedOpen) {
+        els.historySearch.focus();
+        els.historySearch.select();
+      }
+      return;
+    }
     if (event.key !== 'Escape') {
       return;
     }

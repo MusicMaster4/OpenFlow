@@ -8,6 +8,7 @@ const {
   Menu,
   Tray,
   clipboard,
+  dialog,
   globalShortcut,
   ipcMain,
   nativeImage,
@@ -28,6 +29,7 @@ const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
 const DEFAULT_SOUND_EFFECTS_ENABLED = true;
 const DEFAULT_LAUNCH_AT_LOGIN = false;
+const DEFAULT_START_HIDDEN = false;
 const DEFAULT_KEEP_ALL_TRANSCRIPTIONS = false;
 const DEFAULT_TRANSCRIBE_CANCELLED_RECORDINGS = false;
 const DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE = false;
@@ -1080,6 +1082,7 @@ function getDefaultsFromEnv() {
     transcribeCancelledRecordings: DEFAULT_TRANSCRIBE_CANCELLED_RECORDINGS,
     autoEnableHandsFreeMode: DEFAULT_AUTO_ENABLE_HANDS_FREE_MODE,
     duckAudioEnabled: DEFAULT_DUCK_AUDIO,
+    startHidden: DEFAULT_START_HIDDEN,
     overlayOpacity: DEFAULT_OVERLAY_OPACITY,
     overlayScale: DEFAULT_OVERLAY_SCALE,
     overlayDynamicSize: DEFAULT_OVERLAY_DYNAMIC_SIZE,
@@ -1140,6 +1143,7 @@ const state = {
   transcribeCancelledRecordings: defaults.transcribeCancelledRecordings,
   autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
   duckAudioEnabled: defaults.duckAudioEnabled,
+  startHidden: defaults.startHidden,
   overlayOpacity: defaults.overlayOpacity,
   overlayScale: defaults.overlayScale,
   overlayDynamicSize: defaults.overlayDynamicSize,
@@ -1384,6 +1388,7 @@ function createEmptyPersistedState() {
       transcribeCancelledRecordings: defaults.transcribeCancelledRecordings,
       autoEnableHandsFreeMode: defaults.autoEnableHandsFreeMode,
       duckAudioEnabled: defaults.duckAudioEnabled,
+      startHidden: defaults.startHidden,
       overlayOpacity: defaults.overlayOpacity,
       overlayScale: defaults.overlayScale,
       overlayDynamicSize: defaults.overlayDynamicSize,
@@ -1456,6 +1461,7 @@ function normalizePersistedState(payload) {
         preferencesSource.duckAudioEnabled,
         defaults.duckAudioEnabled,
       ),
+      startHidden: normalizeBooleanPreference(preferencesSource.startHidden, defaults.startHidden),
       overlayOpacity: normalizeOverlayOpacity(preferencesSource.overlayOpacity),
       overlayScale: normalizeOverlayScale(preferencesSource.overlayScale),
       overlayDynamicSize: normalizeBooleanPreference(
@@ -1851,6 +1857,7 @@ function savePersistentState() {
       transcribeCancelledRecordings: state.transcribeCancelledRecordings,
       autoEnableHandsFreeMode: state.autoEnableHandsFreeMode,
       duckAudioEnabled: state.duckAudioEnabled,
+      startHidden: state.startHidden,
       overlayOpacity: state.overlayOpacity,
       overlayScale: state.overlayScale,
       overlayDynamicSize: state.overlayDynamicSize,
@@ -4377,6 +4384,8 @@ async function applySettings(patch) {
     : state.pasteLastShortcut;
   const nextDuckAudioEnabled =
     typeof patch.duckAudioEnabled === 'boolean' ? patch.duckAudioEnabled : state.duckAudioEnabled;
+  const nextStartHidden =
+    typeof patch.startHidden === 'boolean' ? patch.startHidden : state.startHidden;
   const nextOverlayOpacity = Object.prototype.hasOwnProperty.call(patch, 'overlayOpacity')
     ? normalizeOverlayOpacity(patch.overlayOpacity)
     : state.overlayOpacity;
@@ -4532,6 +4541,7 @@ async function applySettings(patch) {
     transcribeCancelledRecordings: nextTranscribeCancelledRecordings,
     autoEnableHandsFreeMode: nextAutoEnableHandsFreeMode,
     duckAudioEnabled: nextDuckAudioEnabled,
+    startHidden: nextStartHidden,
     overlayOpacity: nextOverlayOpacity,
     overlayScale: nextOverlayScale,
     overlayDynamicSize: nextOverlayDynamicSize,
@@ -5152,8 +5162,145 @@ function scheduleStartupUpdateCheck() {
   }, 8000);
 }
 
+function deleteHistoryEntry(entryKey) {
+  const key = entryKey && typeof entryKey === 'object' ? entryKey : {};
+  const timestamp = String(key.timestamp || '');
+  const text = String(key.text || '');
+  const index = state.history.findIndex(
+    (entry) => entry.timestamp === timestamp && entry.text === text,
+  );
+  if (index === -1) {
+    return snapshotState();
+  }
+
+  const nextHistory = [...state.history];
+  nextHistory.splice(index, 1);
+  setState({ history: nextHistory });
+  savePersistentState();
+  return snapshotState();
+}
+
+function formatHistoryExportText(entries) {
+  return entries
+    .map((entry) => {
+      const timestamp = new Date(entry.timestamp);
+      const stamp = Number.isNaN(timestamp.getTime())
+        ? String(entry.timestamp || '')
+        : timestamp.toLocaleString();
+      return `[${stamp}] ${entry.text}`;
+    })
+    .join('\n\n');
+}
+
+async function exportHistoryToFile() {
+  const entries = Array.isArray(state.history) ? state.history : [];
+  if (entries.length === 0) {
+    return { status: 'empty' };
+  }
+
+  const dateSuffix = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `openflow-history-${dateSuffix}.txt`,
+    filters: [
+      { name: 'Text', extensions: ['txt'] },
+      { name: 'JSON', extensions: ['json'] },
+    ],
+  });
+  if (result.canceled || !result.filePath) {
+    return { status: 'canceled' };
+  }
+
+  const isJson = path.extname(result.filePath).toLowerCase() === '.json';
+  const contents = isJson
+    ? `${JSON.stringify(entries, null, 2)}\n`
+    : `${formatHistoryExportText(entries)}\n`;
+  try {
+    fs.writeFileSync(result.filePath, contents, 'utf8');
+  } catch (error) {
+    return { status: 'error', message: error?.message || String(error) };
+  }
+
+  return { status: 'saved', filePath: result.filePath, count: entries.length };
+}
+
+async function exportDictionaryToFile() {
+  const entries = Array.isArray(state.dictionaryEntries) ? state.dictionaryEntries : [];
+  if (entries.length === 0) {
+    return { status: 'empty' };
+  }
+
+  const dateSuffix = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `openflow-dictionary-${dateSuffix}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) {
+    return { status: 'canceled' };
+  }
+
+  try {
+    fs.writeFileSync(
+      result.filePath,
+      `${JSON.stringify({ dictionaryEntries: entries }, null, 2)}\n`,
+      'utf8',
+    );
+  } catch (error) {
+    return { status: 'error', message: error?.message || String(error) };
+  }
+
+  return { status: 'saved', filePath: result.filePath, count: entries.length };
+}
+
+async function importDictionaryFromFile() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { status: 'canceled' };
+  }
+
+  let payload = null;
+  try {
+    payload = JSON.parse(fs.readFileSync(result.filePaths[0], 'utf8'));
+  } catch (error) {
+    return { status: 'invalid', message: error?.message || String(error) };
+  }
+
+  const rawEntries = Array.isArray(payload) ? payload : payload?.dictionaryEntries;
+  if (!Array.isArray(rawEntries)) {
+    return { status: 'invalid' };
+  }
+
+  // Drop imported ids so merged rules always get fresh ids and cannot collide
+  // with existing ones. normalizeDictionaryEntries dedupes identical rules.
+  const imported = rawEntries.map((entry) =>
+    entry && typeof entry === 'object' ? { ...entry, id: undefined } : entry,
+  );
+  const before = state.dictionaryEntries.length;
+  const merged = normalizeDictionaryEntries([...state.dictionaryEntries, ...imported]);
+  const added = merged.length - before;
+  if (added <= 0) {
+    return { status: 'none' };
+  }
+
+  await applySettings({ dictionaryEntries: merged });
+  return { status: 'imported', count: added };
+}
+
+function resetOverlayPosition() {
+  state.overlayPosition = null;
+  positionOverlayWindow(null, true);
+  return snapshotState();
+}
+
 ipcMain.handle('get-state', async () => snapshotState());
 ipcMain.handle('update-settings', async (_event, patch) => applySettings(patch || {}));
+ipcMain.handle('delete-history-entry', async (_event, entryKey) => deleteHistoryEntry(entryKey));
+ipcMain.handle('export-history', async () => exportHistoryToFile());
+ipcMain.handle('export-dictionary', async () => exportDictionaryToFile());
+ipcMain.handle('import-dictionary', async () => importDictionaryFromFile());
+ipcMain.handle('reset-overlay-position', async () => resetOverlayPosition());
 ipcMain.handle('reset-model-stats', async () => resetModelStats());
 ipcMain.handle('save-openrouter-api-key', async (_event, apiKey) => saveOpenRouterApiKey(apiKey));
 ipcMain.handle('clear-openrouter-api-key', async () => clearOpenRouterApiKey());
@@ -5223,6 +5370,7 @@ app.whenReady().then(() => {
     transcribeCancelledRecordings: persistedState.preferences.transcribeCancelledRecordings,
     autoEnableHandsFreeMode: persistedState.preferences.autoEnableHandsFreeMode,
     duckAudioEnabled: persistedState.preferences.duckAudioEnabled,
+    startHidden: persistedState.preferences.startHidden,
     overlayOpacity: persistedState.preferences.overlayOpacity,
     overlayScale: persistedState.preferences.overlayScale,
     overlayDynamicSize: persistedState.preferences.overlayDynamicSize,
@@ -5239,7 +5387,9 @@ app.whenReady().then(() => {
     savePersistentState();
   }
   shouldStartHiddenOnLaunch =
-    shouldStartHiddenOnLaunch || Boolean(app.getLoginItemSettings().wasOpenedAsHidden);
+    shouldStartHiddenOnLaunch ||
+    Boolean(app.getLoginItemSettings().wasOpenedAsHidden) ||
+    Boolean(persistedState.preferences.startHidden);
   rebuildDictionaryReplacementIndex(persistedState.preferences.dictionaryEntries);
   syncLaunchAtLoginSetting();
   registerPasteLastShortcut();
