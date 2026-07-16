@@ -2086,6 +2086,7 @@ function recoverOverlayWindowAfterResume() {
   for (const delayMs of OVERLAY_RESUME_REASSERT_DELAYS_MS) {
     setTimeout(resyncOverlayWindowPosition, delayMs);
   }
+  sendOverlayFeedback('reset-sound-output');
   // Windows can keep the transparent always-on-top child window in a stale native
   // state after sleep/resume. Recreating it clears stale visibility and z-order state.
   recoverOverlayWindow(900);
@@ -4599,6 +4600,14 @@ function resetModelStats() {
 ipcMain.handle('copy-text', async (_event, text) => {
   clipboard.writeText(String(text || ''));
   return true;
+});
+
+ipcMain.on('overlay-audio-output-changed', () => {
+  syncAudioControllerConfig(true);
+  const timer = setTimeout(() => syncAudioControllerConfig(true), 500);
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
 });
 
 function shutdownChildren() {

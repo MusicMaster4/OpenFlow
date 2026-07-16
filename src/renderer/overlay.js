@@ -26,17 +26,11 @@ let currentOverlayState = {
   overlayScale: 100,
   overlayDynamicSize: false,
 };
-let soundEffectsEnabled = true;
 let overlayBgOpacity = 1;
 let overlayScale = 1;
 let overlayDynamicSize = false;
 let feedbackTimer = null;
 let activeFeedback = null;
-let activeSoundKey = null;
-let soundDrainScheduled = false;
-let soundWatchdog = null;
-
-const SOUND_WATCHDOG_MS = 4000;
 
 const overlayReadyLabels = {
   en: 'READY',
@@ -76,14 +70,20 @@ const overlayTooShortLabels = {
 
 const TOO_SHORT_FEEDBACK_MS = 1600;
 
-const feedbackSounds = {
-  loaded: new Audio('../assets/audio/loaded.mp3'),
-  start: new Audio('../assets/audio/start.mp3'),
-  close: new Audio('../assets/audio/close.mp3'),
-  cancel: new Audio('../assets/audio/cancel.mp3'),
-  handsfree: new Audio('../assets/audio/handsfree.mp3'),
-};
-const soundQueue = [];
+const feedbackAudio = window.createFeedbackAudioController({
+  sources: {
+    loaded: '../assets/audio/loaded.mp3',
+    start: '../assets/audio/start.mp3',
+    close: '../assets/audio/close.mp3',
+    cancel: '../assets/audio/cancel.mp3',
+    handsfree: '../assets/audio/handsfree.mp3',
+  },
+  volume: 0.25,
+  watchdogMs: 4000,
+  onPlaybackFailure: ({ soundKey, reason, willRetry }) => {
+    console.warn(`Feedback sound ${soundKey} failed (${reason}); retry=${willRetry}.`);
+  },
+});
 
 const waveBars = Array.from(overlayEls.wave.querySelectorAll('span'));
 const BAR_COUNT = waveBars.length;
@@ -96,12 +96,6 @@ const defaultShape = waveBars.map((_bar, index) => {
 });
 let targetShape = defaultShape.slice();
 let currentShape = defaultShape.slice();
-
-for (const audio of Object.values(feedbackSounds)) {
-  audio.preload = 'auto';
-  audio.volume = 0.25;
-  audio.load();
-}
 
 function getOverlayMode(state) {
   switch (state.phase) {
@@ -261,103 +255,6 @@ function renderOverlay(state) {
   lastOverlayMode = mode;
 }
 
-function clearSoundWatchdog() {
-  if (soundWatchdog) {
-    window.clearTimeout(soundWatchdog);
-    soundWatchdog = null;
-  }
-}
-
-function stopAllSounds() {
-  soundQueue.length = 0;
-  activeSoundKey = null;
-  clearSoundWatchdog();
-  for (const audio of Object.values(feedbackSounds)) {
-    audio.pause();
-    audio.currentTime = 0;
-  }
-}
-
-function stopActiveSound() {
-  clearSoundWatchdog();
-  if (!activeSoundKey) {
-    return;
-  }
-
-  const audio = feedbackSounds[activeSoundKey];
-  activeSoundKey = null;
-  if (!audio) {
-    return;
-  }
-
-  audio.pause();
-  audio.currentTime = 0;
-}
-
-function releaseActiveSound(soundKey) {
-  if (soundKey && activeSoundKey !== soundKey) {
-    return;
-  }
-  clearSoundWatchdog();
-  activeSoundKey = null;
-  scheduleSoundDrain();
-}
-
-function drainSoundQueue() {
-  soundDrainScheduled = false;
-  if (!soundEffectsEnabled || activeSoundKey || soundQueue.length === 0) {
-    return;
-  }
-
-  const soundKey = soundQueue.shift();
-  const audio = feedbackSounds[soundKey];
-  if (!audio) {
-    drainSoundQueue();
-    return;
-  }
-
-  activeSoundKey = soundKey;
-  audio.currentTime = 0;
-  // Safety net: if the audio element never fires ended/error (which permanently
-  // froze the whole sound queue before), force-release it after a hard timeout.
-  clearSoundWatchdog();
-  soundWatchdog = window.setTimeout(() => releaseActiveSound(soundKey), SOUND_WATCHDOG_MS);
-
-  const playResult = audio.play();
-  if (playResult && typeof playResult.catch === 'function') {
-    playResult.catch(() => {
-      releaseActiveSound(soundKey);
-    });
-  }
-}
-
-function scheduleSoundDrain() {
-  if (soundDrainScheduled) {
-    return;
-  }
-
-  soundDrainScheduled = true;
-  // setTimeout (not requestAnimationFrame) so the queue keeps draining even if the
-  // overlay window is hidden/occluded and its animation frames are paused.
-  window.setTimeout(drainSoundQueue, 0);
-}
-
-function queueSound(soundKey, options = {}) {
-  if (!soundEffectsEnabled || !feedbackSounds[soundKey]) {
-    return;
-  }
-
-  if (options.interrupt) {
-    soundQueue.length = 0;
-    stopActiveSound();
-    soundQueue.unshift(soundKey);
-  } else {
-    soundQueue.push(soundKey);
-  }
-
-  scheduleSoundDrain();
-}
-
 function clearActiveFeedback() {
   if (feedbackTimer) {
     window.clearTimeout(feedbackTimer);
@@ -372,7 +269,7 @@ function showReadyFeedback(soundKey) {
   clearActiveFeedback();
   activeFeedback = 'ready';
   renderOverlay(currentOverlayState);
-  queueSound(soundKey);
+  feedbackAudio.queueSound(soundKey);
   feedbackTimer = window.setTimeout(() => {
     clearActiveFeedback();
     renderOverlay(currentOverlayState);
@@ -485,15 +382,6 @@ function bindDrag() {
   });
 }
 
-function bindSoundLifecycle() {
-  for (const [soundKey, audio] of Object.entries(feedbackSounds)) {
-    const release = () => releaseActiveSound(soundKey);
-
-    audio.addEventListener('ended', release);
-    audio.addEventListener('error', release);
-  }
-}
-
 function handleFeedback(feedback) {
   if (!feedback || typeof feedback !== 'object') {
     return;
@@ -507,9 +395,12 @@ function handleFeedback(feedback) {
       showTooShortFeedback();
       break;
     case 'play-sound':
-      queueSound(feedback.payload?.sound, {
+      feedbackAudio.queueSound(feedback.payload?.sound, {
         interrupt: Boolean(feedback.payload?.interrupt),
       });
+      break;
+    case 'reset-sound-output':
+      feedbackAudio.resetOutput();
       break;
     default:
       break;
@@ -538,17 +429,20 @@ function initTheme() {
 async function bootstrap() {
   initTheme();
   const initialState = await window.flowOverlay.getState();
-  soundEffectsEnabled = Boolean(initialState.soundEffectsEnabled);
+  feedbackAudio.setEnabled(Boolean(initialState.soundEffectsEnabled));
   applyWaveLevel(initialState.audioLevel || 0);
   renderOverlay(initialState);
   bindDrag();
-  bindSoundLifecycle();
+
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === 'function') {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      feedbackAudio.resetOutput();
+      window.flowOverlay.audioOutputChanged();
+    });
+  }
 
   window.flowOverlay.onStateUpdate((state) => {
-    soundEffectsEnabled = Boolean(state.soundEffectsEnabled);
-    if (!soundEffectsEnabled) {
-      stopAllSounds();
-    }
+    feedbackAudio.setEnabled(Boolean(state.soundEffectsEnabled));
     renderOverlay(state);
   });
   window.flowOverlay.onAudioLevelUpdate((level) => {

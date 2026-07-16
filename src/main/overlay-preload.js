@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('flowOverlay', {
   getState: () => ipcRenderer.invoke('get-state'),
   dragTo: (position) => ipcRenderer.send('overlay-drag-move', position),
   endDrag: (position) => ipcRenderer.send('overlay-drag-end', position),
+  audioOutputChanged: () => ipcRenderer.send('overlay-audio-output-changed'),
   onStateUpdate: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('app-state', listener);

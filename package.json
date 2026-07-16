@@ -6,7 +6,10 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/overlay.js",
+    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/feedback-audio.js && node --check src/renderer/overlay.js && npm run test:feedback-audio && npm run test:release-version",
+    "test:feedback-audio": "node scripts/test-feedback-audio.js",
+    "test:feedback-audio-runtime": "electron scripts/test-feedback-audio-runtime.js",
+    "test:release-version": "node scripts/test-release-version.js",
     "test:startup-error-isolation": "node scripts/test-startup-error-isolation.js",
     "test:duck-restore": "node scripts/test-duck-restore.js",
     "build:icons": "node scripts/build-icons.js",
