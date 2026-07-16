@@ -156,10 +156,11 @@ Expected outputs:
 
 On a normal branch push the platform workflows only upload CI artifacts. They do not run
 on version tags and do not create GitHub releases. On a push to `main`, the release
-workflow validates that the app version changed, validates the `x.x.xxx` version format,
-builds Windows and macOS, and only then publishes a GitHub release with the generated
-installers and update metadata. The release workflow and each release job are explicitly
-guarded to run only for push events on `main`.
+workflow selects the next unused `x.x.xxx` version from the existing release tags,
+synchronizes the package files and README in an automated release commit when needed,
+builds that exact commit on Windows and macOS, and only then publishes its GitHub release.
+The release workflow and each release job are explicitly guarded to run only for push
+events on `main`.
 
 ## Releases and in-app auto-update
 
@@ -169,9 +170,10 @@ configured in the `build.publish` block of [`package.json`](./package.json)
 
 Release flow:
 
-1. Bump `version` in `package.json` and `package-lock.json` (see [`AGENTS.md`](./AGENTS.md) / [`CLAUDE.md`](./CLAUDE.md)).
-2. Commit and push to `main`.
-3. The release workflow builds Windows and macOS first.
+1. Merge or push the application changes to `main`; do not change the version manually.
+2. The release workflow advances beyond the newest padded or normalized release tag and
+   synchronizes `package.json`, `package-lock.json`, and `README.md`.
+3. The release workflow builds the prepared commit on Windows and macOS.
 4. If every build succeeds, the workflow creates tag `v<version>` and publishes a GitHub
    release containing the generated installers and update metadata.
 5. Once the workflow publishes the release, installed apps detect it: OpenFlow checks on
