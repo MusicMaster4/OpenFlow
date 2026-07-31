@@ -1547,8 +1547,51 @@ function renderCloudModels(state) {
   }
 }
 
+const CLOUD_RETRY_TTL_MS = 60 * 60 * 1000;
+let cloudRetryExpiryTimer = null;
+
+function isCloudRetryFresh(retry, now = Date.now()) {
+  const createdAtMs = Date.parse(retry?.createdAt || '');
+  return Number.isFinite(createdAtMs) && now - createdAtMs < CLOUD_RETRY_TTL_MS;
+}
+
+function scheduleCloudRetryExpiryRefresh(retries) {
+  if (cloudRetryExpiryTimer) {
+    clearTimeout(cloudRetryExpiryTimer);
+    cloudRetryExpiryTimer = null;
+  }
+
+  const now = Date.now();
+  let nextExpiryMs = Infinity;
+  for (const retry of retries) {
+    const createdAtMs = Date.parse(retry?.createdAt || '');
+    if (!Number.isFinite(createdAtMs)) {
+      continue;
+    }
+    const expiresAt = createdAtMs + CLOUD_RETRY_TTL_MS;
+    if (expiresAt > now && expiresAt < nextExpiryMs) {
+      nextExpiryMs = expiresAt;
+    }
+  }
+
+  if (!Number.isFinite(nextExpiryMs)) {
+    return;
+  }
+
+  cloudRetryExpiryTimer = setTimeout(() => {
+    cloudRetryExpiryTimer = null;
+    renderCache.cloudRetries = '';
+    if (lastState) {
+      renderCloudRetries(lastState);
+    }
+  }, Math.max(250, nextExpiryMs - Date.now() + 50));
+}
+
 function renderCloudRetries(state) {
-  const retries = Array.isArray(state.cloudRetries) ? state.cloudRetries : [];
+  const now = Date.now();
+  const retries = (Array.isArray(state.cloudRetries) ? state.cloudRetries : []).filter((retry) =>
+    isCloudRetryFresh(retry, now),
+  );
   const signature = [
     locale(),
     state.phase,
@@ -1557,9 +1600,11 @@ function renderCloudRetries(state) {
       .join('|'),
   ].join('|');
   if (renderCache.cloudRetries === signature) {
+    scheduleCloudRetryExpiryRefresh(retries);
     return;
   }
   renderCache.cloudRetries = signature;
+  scheduleCloudRetryExpiryRefresh(retries);
 
   els.cloudRetrySection.classList.toggle('hidden', retries.length === 0);
   if (retries.length === 0) {
