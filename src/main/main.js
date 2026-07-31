@@ -45,7 +45,12 @@ const PERSISTENCE_VERSION = 6;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
 const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
-const WINDOWS_PASTE_TIMEOUT_MS = 4000;
+// Generous enough to cover PowerShell start-up, waiting for the user to let go of
+// the hotkey modifiers, clipboard retries and the post-paste clipboard dwell.
+const WINDOWS_PASTE_TIMEOUT_MS = 8000;
+// Overrides the paste keystroke the script picks from the foreground window.
+// One of: auto | ctrl-v | shift-insert | ctrl-shift-v | type.
+const WINDOWS_PASTE_METHODS = new Set(['auto', 'ctrl-v', 'shift-insert', 'ctrl-shift-v', 'type']);
 // Burst early after capture-end, then keep retrying long enough that media apps
 // (Chrome etc.) which recycle sessions after a long silence still get unmuted.
 // Final delay is 5 minutes so late session rebirth is not abandoned after ~10s.
@@ -68,6 +73,8 @@ const OPENROUTER_STT_MODELS_URL = `${OPENROUTER_BASE_URL}/models?output_modaliti
 const OPENROUTER_STT_URL = `${OPENROUTER_BASE_URL}/audio/transcriptions`;
 const OPENROUTER_DEFAULT_MODEL = DEFAULT_CLOUD_TRANSCRIPTION_MODEL;
 const CLOUD_RETRY_LIMIT = 20;
+const CLOUD_RETRY_TTL_MS = 60 * 60 * 1000;
+const CLOUD_RETRY_PRUNE_INTERVAL_MS = 60 * 1000;
 const CLOUD_TRANSCRIPTION_TIMEOUT_MS = 120000;
 const BACKGROUND_TRANSCRIPTION_SESSION_TTL_MS = 30 * 60 * 1000;
 const MODEL_OPTIONS = [
@@ -1620,7 +1627,15 @@ function readCloudRetryRecord(id) {
   return unprotectCloudRetryRecord(protectedPayload);
 }
 
-function getCloudRetryRecords() {
+function isCloudRetryExpired(record, now = Date.now()) {
+  const createdAtMs = Date.parse(record?.createdAt || '');
+  if (!Number.isFinite(createdAtMs)) {
+    return true;
+  }
+  return now - createdAtMs >= CLOUD_RETRY_TTL_MS;
+}
+
+function listCloudRetryRecords() {
   try {
     return fs
       .readdirSync(getCloudRetriesDirectory(), { withFileTypes: true })
@@ -1631,6 +1646,11 @@ function getCloudRetryRecords() {
   } catch (_error) {
     return [];
   }
+}
+
+function getCloudRetryRecords() {
+  pruneCloudRetries();
+  return listCloudRetryRecords().filter((record) => !isCloudRetryExpired(record));
 }
 
 function getCloudRetrySnapshot() {
@@ -1645,13 +1665,59 @@ function getCloudRetrySnapshot() {
 }
 
 function pruneCloudRetries() {
-  const records = getCloudRetryRecords();
-  for (const record of records.slice(CLOUD_RETRY_LIMIT)) {
+  const records = listCloudRetryRecords();
+  const now = Date.now();
+  const active = [];
+
+  for (const record of records) {
+    if (isCloudRetryExpired(record, now)) {
+      try {
+        fs.unlinkSync(getCloudRetryPath(record.id));
+      } catch (_error) {
+        // Best effort.
+      }
+      continue;
+    }
+    active.push(record);
+  }
+
+  for (const record of active.slice(CLOUD_RETRY_LIMIT)) {
     try {
       fs.unlinkSync(getCloudRetryPath(record.id));
     } catch (_error) {
       // Best effort.
     }
+  }
+}
+
+function cloudRetrySnapshotSignature(retries) {
+  return (retries || [])
+    .map((retry) => `${retry.id}:${retry.createdAt}:${retry.error || ''}`)
+    .join('|');
+}
+
+function refreshCloudRetriesState() {
+  const next = getCloudRetrySnapshot();
+  if (cloudRetrySnapshotSignature(state.cloudRetries) === cloudRetrySnapshotSignature(next)) {
+    return false;
+  }
+  setState({
+    cloudRetries: next,
+  });
+  return true;
+}
+
+let cloudRetryPruneTimer = null;
+
+function startCloudRetryPruneWatch() {
+  if (cloudRetryPruneTimer) {
+    return;
+  }
+  cloudRetryPruneTimer = setInterval(() => {
+    refreshCloudRetriesState();
+  }, CLOUD_RETRY_PRUNE_INTERVAL_MS);
+  if (typeof cloudRetryPruneTimer.unref === 'function') {
+    cloudRetryPruneTimer.unref();
   }
 }
 
@@ -2662,6 +2728,17 @@ function restorePreviousClipboard(injectedText, snapshot) {
   }
 }
 
+// Escape hatch for apps whose paste shortcut the script cannot infer from the
+// foreground window. `type` bypasses the clipboard entirely and synthesises the
+// characters, which works even where clipboard paste is blocked.
+function getWindowsPasteMethod() {
+  const requested = String(process.env.FLOW_PASTE_METHOD || '')
+    .trim()
+    .toLowerCase();
+
+  return WINDOWS_PASTE_METHODS.has(requested) ? requested : 'auto';
+}
+
 function runTextInsertion(text) {
   return new Promise((resolve, reject) => {
     if (process.platform === 'darwin') {
@@ -2714,7 +2791,18 @@ function runTextInsertion(text) {
     const encodedText = Buffer.from(text, 'utf8').toString('base64');
     const powershell = spawn(
       'powershell.exe',
-      ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-EncodedText', encodedText],
+      [
+        '-NoProfile',
+        '-STA',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        scriptPath,
+        '-EncodedText',
+        encodedText,
+        '-Method',
+        getWindowsPasteMethod(),
+      ],
       { windowsHide: true },
     );
 
@@ -3493,7 +3581,10 @@ async function handleCloudAudioPayload(payload, sessionId) {
 
 async function retryCloudTranscription(id) {
   const record = readCloudRetryRecord(id);
-  if (!record) {
+  if (!record || isCloudRetryExpired(record)) {
+    if (record) {
+      deleteCloudRetry(record.id);
+    }
     throw new Error('Saved recording was not found.');
   }
 
@@ -5407,6 +5498,7 @@ app.whenReady().then(() => {
   createWindow();
   createOverlayWindow();
   startOverlayVisibilityWatchdog();
+  startCloudRetryPruneWatch();
   bootAudioController();
   bootDictationService();
   bootHotkeyListener();
