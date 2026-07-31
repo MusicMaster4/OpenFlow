@@ -333,7 +333,12 @@ namespace OpenFlow.Native {
   $chunkSize = 200
   for ($offset = 0; $offset -lt $Value.Length; $offset += $chunkSize) {
     $length = [Math]::Min($chunkSize, $Value.Length - $offset)
-    [void][OpenFlow.Native.Typist]::Type($Value.Substring($offset, $length))
+    $expectedInputCount = [uint32]($length * 2)
+    $sentInputCount = [OpenFlow.Native.Typist]::Type($Value.Substring($offset, $length))
+    if ($sentInputCount -ne $expectedInputCount) {
+      $nativeError = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+      throw "Windows accepted $sentInputCount of $expectedInputCount keyboard events (error $nativeError)."
+    }
     Start-Sleep -Milliseconds 5
   }
 }
