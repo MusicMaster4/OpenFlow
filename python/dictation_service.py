@@ -160,7 +160,9 @@ class DictationService:
         self.frame_ms = 30
         self.frame_samples = int(self.sample_rate * self.frame_ms / 1000)
         self._init_spectrum_bands()
-        self.vad = webrtcvad.Vad(2)
+        # Prefer retaining marginal speech over aggressively removing it. Whisper can
+        # ignore a little background noise, but it cannot recover clipped consonants.
+        self.vad = webrtcvad.Vad(1)
         self.model_name = os.getenv("WHISPER_MODEL", "small")
         self.cloud_mode = os.getenv("FLOW_TRANSCRIPTION_ENGINE", "local").lower() == "cloud"
         self.model_dir = os.getenv("WHISPER_MODEL_DIR")
@@ -176,7 +178,9 @@ class DictationService:
         self.stream: Optional[sd.InputStream] = None
         self.listening = False
         self.triggered = False
-        self.ring_buffer = deque(maxlen=8)
+        # Keep enough audio before and after VAD activation to preserve quiet word
+        # beginnings and endings, which are especially important for proper nouns.
+        self.ring_buffer = deque(maxlen=12)
         self.voiced_frames = []
         self.silence_frames = 0
         self.pending_segments: list[np.ndarray] = []
@@ -342,11 +346,14 @@ class DictationService:
         return self.model.transcribe(
             segment,
             language=language,
-            beam_size=5,
-            best_of=5,
+            beam_size=8,
+            best_of=8,
+            patience=1.2,
             vad_filter=False,
-            condition_on_previous_text=False,
-            temperature=0.0,
+            condition_on_previous_text=True,
+            # Start deterministically, then retry only difficult passages with a
+            # small amount of sampling instead of accepting a weak first decode.
+            temperature=(0.0, 0.2, 0.4),
             compression_ratio_threshold=2.4,
             no_speech_threshold=0.45,
         )
@@ -634,7 +641,7 @@ class DictationService:
         self.voiced_frames.append(frame)
         self.silence_frames = 0 if is_speech else self.silence_frames + 1
 
-        if self.silence_frames >= 12 or len(self.voiced_frames) >= self.max_segment_frames:
+        if self.silence_frames >= 18 or len(self.voiced_frames) >= self.max_segment_frames:
             frames = self.voiced_frames
             self._reset_segment_state()
             if len(frames) >= self.min_segment_frames:
