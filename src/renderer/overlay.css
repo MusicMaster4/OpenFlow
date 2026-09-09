@@ -75,7 +75,7 @@ html, body {
   background: var(--overlay-bg);
   box-shadow: var(--overlay-shadow);
   opacity: var(--overlay-bg-opacity, 1);
-  transition: opacity 0.2s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+  transition: opacity 0.2s ease, background-color 250ms ease, box-shadow 250ms ease;
   z-index: 0;
 }
 
@@ -107,6 +107,21 @@ html, body {
   background: var(--overlay-dot);
   z-index: 1;
   animation: pulse-badge 0.75s infinite alternate ease-in-out; /* Pulsing twice as fast */
+  transition: background-color 250ms ease;
+}
+
+/* Computer-audio capture inverts the pill: recording red fills the body, and the
+   wave/hands-free dot take the normal backdrop color. */
+.overlay-shell[data-source='system'] .overlay-pill::before {
+  background: var(--overlay-dot);
+}
+
+.overlay-shell[data-source='system'] .overlay-badge {
+  background: var(--overlay-bg);
+}
+
+.overlay-shell[data-source='system'] .overlay-wave span {
+  background: var(--overlay-bg);
 }
 
 /* Containers */
@@ -148,7 +163,7 @@ html, body {
   transition:
     height 90ms linear,
     opacity 90ms linear,
-    background-color 0.3s ease;
+    background-color 250ms ease;
 }
 
 /* Loading state: 11 smaller dots in the same footprint (11 x 2px + 10 x 1px = 32px). */

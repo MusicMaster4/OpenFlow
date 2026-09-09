@@ -21,6 +21,7 @@ let lastOverlayMode = 'idle';
 let currentOverlayState = {
   phase: 'idle',
   captureMode: null,
+  captureSource: null,
   audioLevel: 0,
   overlayOpacity: 100,
   overlayScale: 100,
@@ -114,6 +115,13 @@ function getOverlayMode(state) {
 
 function isHandsFreeActive(state) {
   return state.phase === 'listening' && state.captureMode === 'hands-free';
+}
+
+function isSystemAudioActive(state) {
+  return (
+    state.captureSource === 'system' &&
+    (state.phase === 'listening' || state.captureMode !== null)
+  );
 }
 
 function flushDrag() {
@@ -218,6 +226,7 @@ function renderOverlay(state) {
   currentOverlayState = {
     phase: state.phase,
     captureMode: state.captureMode ?? null,
+    captureSource: state.captureSource ?? null,
     audioLevel: state.audioLevel ?? targetAudioLevel,
     overlayOpacity: nextOverlayOpacity,
     overlayScale: nextOverlayScale,
@@ -230,6 +239,7 @@ function renderOverlay(state) {
 
   const mode = getOverlayMode(state);
   const handsFree = isHandsFreeActive(state);
+  const systemAudio = isSystemAudioActive(state);
   applyOverlayStyle(mode, state.phase);
   if (mode !== 'idle' && activeFeedback) {
     clearActiveFeedback();
@@ -237,6 +247,7 @@ function renderOverlay(state) {
 
   overlayEls.shell.dataset.mode = mode;
   overlayEls.shell.dataset.handsFree = handsFree ? 'true' : 'false';
+  overlayEls.shell.dataset.source = systemAudio ? 'system' : 'microphone';
   overlayEls.shell.dataset.feedback = activeFeedback || 'none';
   overlayEls.wave.classList.toggle('hidden', mode !== 'recording');
   overlayEls.loader.classList.toggle('hidden', mode !== 'loading');
@@ -401,6 +412,9 @@ function handleFeedback(feedback) {
       break;
     case 'reset-sound-output':
       feedbackAudio.resetOutput();
+      break;
+    case 'stop-sound':
+      feedbackAudio.stopAll();
       break;
     default:
       break;

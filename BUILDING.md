@@ -21,12 +21,15 @@ This project uses the same codebase for Windows and macOS packaging.
 
 - Dictation: `Ctrl+Win`
 - Hands-free: hold `Ctrl+Win` and press `Space`
+- Computer audio: hold `Ctrl+Win+Alt` to transcribe playback from the computer
+- Computer-audio hands-free: hold `Ctrl+Win+Alt` and press `Space`
 - Paste last transcription: `Ctrl+Alt+V`
 
 ### macOS
 
 - Dictation: `Option+Space`
 - The macOS dictation shortcut behaves like a toggle: press once to start and once to stop/transcribe.
+- Computer-audio transcription is Windows-only
 - Paste last transcription: `Command+Option+V`
 
 If `FLOW_HOTKEY` is empty, OpenFlow uses the platform default automatically.

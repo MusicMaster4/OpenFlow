@@ -1678,6 +1678,14 @@ h1, h2, h3 {
   transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
 }
 .shortcut-capture:hover { border-color: var(--text); background: var(--button-hover); }
+.shortcut-capture--static {
+  pointer-events: none;
+  cursor: default;
+}
+.shortcut-capture--static:hover {
+  border-color: var(--panel-border-strong);
+  background: var(--panel-bg);
+}
 .shortcut-capture__keys {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.82rem;

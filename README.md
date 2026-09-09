@@ -11,7 +11,7 @@ It is designed for fast keyboard-free text capture, global shortcuts, a floating
 - Local transcription powered by Faster-Whisper
 - Optional cloud transcription through OpenRouter speech-to-text models
 - Electron desktop UI with history, diagnostics, settings, and dictionary rules
-- Global hold-to-dictate shortcut, hands-free mode, and a paste-last shortcut
+- Global hold-to-dictate shortcut, hands-free mode, computer-audio transcription, and a paste-last shortcut
 - Floating overlay with live activity feedback, drag positioning, opacity, scale, and dynamic-size controls
 - On-demand Whisper model downloads stored in the user data directory
 - Model timing stats, usage stats, searchable local history, and configurable history retention
