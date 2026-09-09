@@ -114,6 +114,8 @@ html, body {
    wave/hands-free dot take the normal backdrop color. */
 .overlay-shell[data-source='system'] .overlay-pill::before {
   background: var(--overlay-dot);
+  /* The theme's inset highlight would leave a white/black rim on the red body. */
+  box-shadow: none;
 }
 
 .overlay-shell[data-source='system'] .overlay-badge {
