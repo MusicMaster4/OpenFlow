@@ -43,6 +43,10 @@ const TRANSLATIONS = {
     shortcuts: 'Shortcuts',
     shortcutsCopy: 'Choose the keys you press to dictate and to paste.',
     globalShortcutCopy: 'Hold to dictate. Add Space while holding for hands-free.',
+    systemAudioShortcut: 'Computer audio',
+    systemAudioShortcutCopy:
+      'Hold {shortcut} to transcribe audio playing on this computer. Add Space for hands-free.',
+    systemAudioShortcutUnavailable: 'Computer-audio transcription is available on Windows only.',
     pasteLastCopy: 'Paste your most recent transcription into any app.',
     shortcutHint: 'Click a shortcut, then press the key combination you want. Press Esc to cancel.',
     recordingShortcut: 'Press keys…',
@@ -231,6 +235,11 @@ const TRANSLATIONS = {
     shortcuts: 'Atalhos',
     shortcutsCopy: 'Escolha as teclas que você pressiona para ditar e para colar.',
     globalShortcutCopy: 'Segure para ditar. Adicione Espaço enquanto segura para o modo hands-free.',
+    systemAudioShortcut: 'Áudio do computador',
+    systemAudioShortcutCopy:
+      'Segure {shortcut} para transcrever o áudio que está saindo do computador. Adicione Espaço para hands-free.',
+    systemAudioShortcutUnavailable:
+      'A transcrição do áudio do computador está disponível apenas no Windows.',
     pasteLastCopy: 'Cole sua transcrição mais recente em qualquer app.',
     shortcutHint: 'Clique em um atalho e pressione a combinação desejada. Pressione Esc para cancelar.',
     recordingShortcut: 'Pressione as teclas…',
@@ -405,6 +414,11 @@ Object.assign(TRANSLATIONS['pt-BR'], {
   autoEnableHandsFreeMode: 'Ativar hands-free automaticamente',
   autoEnableHandsFreeModeCopy:
     'Inicia o ditado em hands-free assim que voce pressiona o atalho global.',
+  systemAudioShortcut: 'Audio do computador',
+  systemAudioShortcutCopy:
+    'Segure {shortcut} para transcrever o audio que esta saindo do computador. Adicione Espaco para hands-free.',
+  systemAudioShortcutUnavailable:
+    'A transcricao do audio do computador esta disponivel apenas no Windows.',
 });
 
 const DETECTION_LANGUAGE_TRANSLATIONS = {
@@ -612,6 +626,10 @@ for (const code of SUPPORTED_INTERFACE_LANGUAGES) {
     autoEnableHandsFreeMode: 'Auto-enable hands-free mode',
     autoEnableHandsFreeModeCopy:
       'Start hands-free dictation as soon as you press the global shortcut.',
+    systemAudioShortcut: 'Computer audio',
+    systemAudioShortcutCopy:
+      'Hold {shortcut} to transcribe audio playing on this computer. Add Space for hands-free.',
+    systemAudioShortcutUnavailable: 'Computer-audio transcription is available on Windows only.',
     ...(DETECTION_LANGUAGE_TRANSLATIONS[code] || {}),
   });
 }
@@ -641,6 +659,10 @@ const els = {
   historyCopy: document.getElementById('history-copy'),
   shortcutLabel: document.getElementById('shortcut-label'),
   pasteShortcutLabel: document.getElementById('paste-shortcut-label'),
+  systemAudioShortcutLabel: document.getElementById('system-audio-shortcut-label'),
+  systemAudioShortcutMeta: document.getElementById('system-audio-shortcut-meta'),
+  systemAudioShortcutCopy: document.getElementById('system-audio-shortcut-copy'),
+  systemAudioShortcutKeys: document.getElementById('system-audio-shortcut-keys'),
   noticeStrip: document.getElementById('notice-strip'),
   statusPanel: document.getElementById('status-panel'),
   statusPanelTitle: document.getElementById('status-panel-title'),
@@ -1777,6 +1799,25 @@ function renderState(state) {
 
   els.shortcutLabel.textContent = formatShortcut(state.shortcut, state.platform) || '--';
   els.pasteShortcutLabel.textContent = formatShortcut(state.pasteLastShortcut, state.platform) || '--';
+  const systemAudioShortcut = formatShortcut(
+    state.systemAudioShortcut || `${state.shortcut}+alt`,
+    state.platform,
+  );
+  if (els.systemAudioShortcutLabel) {
+    els.systemAudioShortcutLabel.textContent = systemAudioShortcut || '--';
+  }
+  if (els.systemAudioShortcutMeta) {
+    els.systemAudioShortcutMeta.classList.toggle('hidden', state.platform !== 'win32');
+  }
+  if (els.systemAudioShortcutKeys) {
+    els.systemAudioShortcutKeys.textContent = systemAudioShortcut || '--';
+  }
+  if (els.systemAudioShortcutCopy) {
+    els.systemAudioShortcutCopy.textContent =
+      state.platform === 'win32'
+        ? template('systemAudioShortcutCopy', { shortcut: systemAudioShortcut })
+        : t('systemAudioShortcutUnavailable');
+  }
   const activeModelId = state.cloudTranscriptionEnabled
     ? state.cloudTranscriptionModel
     : state.model;
@@ -1949,6 +1990,11 @@ function refreshShortcutLabels() {
   els.shortcutCaptureKeys.textContent = formatShortcut(lastState.shortcut, lastState.platform) || '--';
   els.pasteShortcutCaptureKeys.textContent =
     formatShortcut(lastState.pasteLastShortcut, lastState.platform) || '--';
+  if (els.systemAudioShortcutKeys) {
+    els.systemAudioShortcutKeys.textContent =
+      formatShortcut(lastState.systemAudioShortcut || `${lastState.shortcut}+alt`, lastState.platform) ||
+      '--';
+  }
 }
 
 function startShortcutCapture(target) {

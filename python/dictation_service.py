@@ -104,6 +104,8 @@ import ctranslate2
 from faster_whisper import WhisperModel
 from faster_whisper.tokenizer import _LANGUAGE_CODES
 
+from system_audio import SystemAudioCapture
+
 load_dotenv()
 
 DEFAULT_ALLOWED_LANGUAGES = ("en",)
@@ -176,6 +178,9 @@ class DictationService:
         self.processing_thread = threading.Thread(target=self._process_audio_loop, daemon=True)
         self.transcriber_thread = threading.Thread(target=self._transcribe_loop, daemon=True)
         self.stream: Optional[sd.InputStream] = None
+        self.system_capture: Optional[SystemAudioCapture] = None
+        self.capture_source = "microphone"
+        self.system_frames: list[bytes] = []
         self.listening = False
         self.triggered = False
         # Keep enough audio before and after VAD activation to preserve quiet word
@@ -374,13 +379,69 @@ class DictationService:
 
         return session_id if session_id > 0 else None
 
+    @staticmethod
+    def _coerce_capture_source(payload: Optional[dict]) -> str:
+        if not payload:
+            return "microphone"
+        value = str(payload.get("source") or "microphone").strip().lower()
+        return "system" if value == "system" else "microphone"
+
     def _close_stream(self) -> None:
-        if self.stream is None:
+        capture = self.system_capture
+        self.system_capture = None
+        if capture is not None:
+            try:
+                capture.stop()
+            except Exception:
+                pass
+
+        stream = self.stream
+        self.stream = None
+        if stream is None:
             return
 
-        self.stream.stop()
-        self.stream.close()
-        self.stream = None
+        try:
+            stream.stop()
+        except Exception:
+            pass
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+    def _open_capture_stream(self) -> None:
+        if self.capture_source == "system":
+            capture = SystemAudioCapture(
+                sample_rate=self.sample_rate,
+                frame_samples=self.frame_samples,
+                on_frame=self.audio_queue.put,
+                on_error=self._handle_system_capture_error,
+            )
+            capture.start()
+            self.system_capture = capture
+            return
+
+        self.stream = sd.InputStream(
+            samplerate=self.sample_rate,
+            blocksize=self.frame_samples,
+            channels=1,
+            dtype="int16",
+            callback=self._audio_callback,
+        )
+        self.stream.start()
+
+    def _handle_system_capture_error(self, message: str) -> None:
+        self.listening = False
+        self.system_capture = None
+        self.emit("error", {"message": message, "session_id": self.current_session_id})
+
+    def _promote_system_frames(self) -> None:
+        if not self.system_frames:
+            return
+        audio = np.frombuffer(b"".join(self.system_frames), dtype=np.int16).astype(np.float32) / 32768.0
+        self.system_frames = []
+        if audio.size:
+            self.pending_segments.append(audio)
 
     def _clear_audio_queue(self) -> None:
         while True:
@@ -399,30 +460,44 @@ class DictationService:
             self._process_frame(frame)
 
     def start(self, payload: Optional[dict] = None) -> None:
-        if self.listening:
+        source = self._coerce_capture_source(payload)
+        session_id = self._coerce_session_id(payload)
+        if (
+            self.listening
+            and source == self.capture_source
+            and (session_id is None or session_id == self.current_session_id)
+        ):
             return
 
-        session_id = self._coerce_session_id(payload)
+        self._close_stream()
+        self._reset_segment_state()
+        self.pending_segments = []
+        self.system_frames = []
+        self._clear_audio_queue()
+
         if session_id is not None:
             self.current_session_id = session_id
             self.canceled_session_ids.discard(session_id)
 
-        self._reset_segment_state()
-        self.pending_segments = []
-        self._clear_audio_queue()
-        self.stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            blocksize=self.frame_samples,
-            channels=1,
-            dtype="int16",
-            callback=self._audio_callback,
-        )
-        self.stream.start()
+        self.capture_source = source
+        try:
+            self._open_capture_stream()
+        except Exception:
+            self.listening = False
+            self.capture_source = "microphone"
+            self._close_stream()
+            raise
+
         self.listening = True
         self.recording_started_at = time.monotonic()
         self.emit(
             "state",
-            {"phase": "listening", "listening": True, "session_id": self.current_session_id},
+            {
+                "phase": "listening",
+                "listening": True,
+                "session_id": self.current_session_id,
+                "source": self.capture_source,
+            },
         )
 
     def stop(self, payload: Optional[dict] = None) -> None:
@@ -430,10 +505,16 @@ class DictationService:
             return
 
         session_id = self._coerce_session_id(payload) or self.current_session_id
-        self.listening = False
+        source = self.capture_source
         self._close_stream()
+        self._drain_audio_queue()
+        self.listening = False
 
-        self._flush_open_segment()
+        if source == "system":
+            self._promote_system_frames()
+        else:
+            self._flush_open_segment()
+        self.capture_source = "microphone"
         self.emit("partial", {"text": "", "session_id": session_id})
 
         recording_ms = (
@@ -469,15 +550,21 @@ class DictationService:
         if session_id is not None and not should_transcribe_cancelled:
             self.canceled_session_ids.add(session_id)
 
+        source = self.capture_source
         self._close_stream()
         if should_transcribe_cancelled:
             self._drain_audio_queue()
-            self._flush_open_segment()
+            if source == "system":
+                self._promote_system_frames()
+            else:
+                self._flush_open_segment()
         self.listening = False
         self.recording_started_at = 0.0
+        self.capture_source = "microphone"
         if not should_transcribe_cancelled:
             self._reset_segment_state()
             self.pending_segments = []
+            self.system_frames = []
             self._clear_audio_queue()
         if self.current_session_id == session_id:
             self.current_session_id = None
@@ -598,18 +685,7 @@ class DictationService:
 
             self._process_frame(frame)
 
-    def _process_frame(self, frame: bytes) -> None:
-        is_speech = self.vad.is_speech(frame, self.sample_rate)
-        samples = np.frombuffer(frame, dtype=np.int16)
-        if samples.size:
-            rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32)))))
-            level = min(1.0, math.sqrt((rms / 32768.0) * 14.0))
-        else:
-            level = 0.0
-
-        if not is_speech:
-            level *= 0.12
-
+    def _emit_level(self, samples: np.ndarray, level: float) -> None:
         self.emit(
             "level",
             {
@@ -618,6 +694,31 @@ class DictationService:
                 "session_id": self.current_session_id,
             },
         )
+
+    def _frame_level(self, samples: np.ndarray) -> float:
+        if samples.size:
+            rms = float(np.sqrt(np.mean(np.square(samples.astype(np.float32)))))
+            return min(1.0, math.sqrt((rms / 32768.0) * 14.0))
+        return 0.0
+
+    def _process_system_frame(self, frame: bytes) -> None:
+        samples = np.frombuffer(frame, dtype=np.int16)
+        self._emit_level(samples, self._frame_level(samples))
+        self.system_frames.append(frame)
+
+    def _process_frame(self, frame: bytes) -> None:
+        if self.capture_source == "system":
+            self._process_system_frame(frame)
+            return
+
+        is_speech = self.vad.is_speech(frame, self.sample_rate)
+        samples = np.frombuffer(frame, dtype=np.int16)
+        level = self._frame_level(samples)
+
+        if not is_speech:
+            level *= 0.12
+
+        self._emit_level(samples, level)
 
         if not self.triggered:
             self.ring_buffer.append((frame, is_speech))
@@ -657,6 +758,8 @@ class DictationService:
 
         if len(self.pending_segments) == 1:
             merged_audio = self.pending_segments[0]
+        elif self.capture_source == "system":
+            merged_audio = np.concatenate(self.pending_segments)
         else:
             # Preserve short pauses between detected speech chunks without
             # transcribing while the user is still holding the hotkey.

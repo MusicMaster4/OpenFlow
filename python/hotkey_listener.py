@@ -11,10 +11,38 @@ load_dotenv()
 
 VK_SPACE = 0x20
 VK_ESCAPE = 0x1B
+VK_SHIFT = 0x10
+VK_SHIFT_L = 0xA0
+VK_SHIFT_R = 0xA1
+VK_MENU = 0x12
+VK_MENU_L = 0xA4
+VK_MENU_R = 0xA5
 WIN32_KEYDOWN_MESSAGES = {0x0100, 0x0104}
 WIN32_KEYUP_MESSAGES = {0x0101, 0x0105}
+WIN32_TOKEN_VKS = {
+    VK_SPACE: "space",
+    VK_ESCAPE: "escape",
+    VK_SHIFT: "shift",
+    VK_SHIFT_L: "shift",
+    VK_SHIFT_R: "shift",
+    VK_MENU: "alt",
+    VK_MENU_L: "alt",
+    VK_MENU_R: "alt",
+}
 DARWIN_SPACE_KEYCODE = 49
 DARWIN_ESCAPE_KEYCODE = 53
+DARWIN_SHIFT_L_KEYCODE = 56
+DARWIN_SHIFT_R_KEYCODE = 60
+DARWIN_OPTION_L_KEYCODE = 58
+DARWIN_OPTION_R_KEYCODE = 61
+DARWIN_TOKEN_KEYCODES = {
+    DARWIN_SPACE_KEYCODE: "space",
+    DARWIN_ESCAPE_KEYCODE: "escape",
+    DARWIN_SHIFT_L_KEYCODE: "shift",
+    DARWIN_SHIFT_R_KEYCODE: "shift",
+    DARWIN_OPTION_L_KEYCODE: "alt",
+    DARWIN_OPTION_R_KEYCODE: "alt",
+}
 
 if sys.platform == "darwin":
     from Quartz import (
@@ -74,13 +102,17 @@ class HotkeyListener:
         self.paste_last_active = False
         self.paste_last_pending_emit = False
         self.active_mode = "hold"
+        self.active_source = "microphone"
         self.state_lock = threading.Lock()
         self.listener = None
         self.pressed_tokens: set[str] = set()
         self.suppressed_action_tokens: set[str] = set()
         self.consume_space = False
         self.consume_escape = False
+        self.consume_system_modifier = False
         self.hotkey_tokens = self._parse_shortcut(self.hotkey)
+        self.system_audio_token = self._system_audio_modifier(self.hotkey_tokens)
+        self.system_audio_hotkey = f"{self.hotkey}+{self.system_audio_token}"
         self.paste_last_tokens = self._parse_shortcut(self.paste_last_hotkey)
         if not self.hotkey_tokens:
             raise RuntimeError("Atalho global invalido.")
@@ -108,6 +140,7 @@ class HotkeyListener:
             {
                 "shortcut": self.hotkey,
                 "paste_last_shortcut": self.paste_last_hotkey,
+                "system_audio_shortcut": self.system_audio_hotkey,
             },
         )
 
@@ -121,6 +154,7 @@ class HotkeyListener:
         self.paste_last_active = False
         self.paste_last_pending_emit = False
         self.active_mode = "hold"
+        self.active_source = "microphone"
         self.pressed_tokens.clear()
         self.suppressed_action_tokens.clear()
         self.listener = None
@@ -172,6 +206,14 @@ class HotkeyListener:
             "arrowright": "right",
         }
         return aliases.get(value, value)
+
+    @classmethod
+    def _system_audio_modifier(cls, hotkey_tokens: set[str]) -> str:
+        if "alt" not in hotkey_tokens:
+            return "alt"
+        if "shift" not in hotkey_tokens:
+            return "shift"
+        return "alt"
 
     @classmethod
     def _parse_shortcut(cls, shortcut: str) -> set[str]:
@@ -259,6 +301,10 @@ class HotkeyListener:
             combo_active = self.hotkey_tokens.issubset(self.pressed_tokens)
             paste_last_active = self.paste_last_tokens.issubset(self.pressed_tokens)
             wants_hands_free = "space" in self.pressed_tokens
+            wants_system_audio = (
+                self.system_audio_token not in self.hotkey_tokens
+                and self.system_audio_token in self.pressed_tokens
+            )
 
             if paste_last_active and not self.paste_last_active:
                 self.paste_last_active = True
@@ -276,25 +322,63 @@ class HotkeyListener:
             if combo_active and not self.is_pressed:
                 self.is_pressed = True
                 self.active_mode = "hands-free" if wants_hands_free else "hold"
-                self.emit("hotkey-pressed", {"shortcut": self.hotkey, "mode": self.active_mode})
+                self.active_source = "system" if wants_system_audio else "microphone"
+                self.emit(
+                    "hotkey-pressed",
+                    {
+                        "shortcut": self.hotkey,
+                        "mode": self.active_mode,
+                        "source": self.active_source,
+                    },
+                )
                 return
 
-            if combo_active and self.is_pressed and self.active_mode != "hands-free" and wants_hands_free:
-                self.active_mode = "hands-free"
-                self.emit("hotkey-mode-changed", {"shortcut": self.hotkey, "mode": self.active_mode})
+            if combo_active and self.is_pressed:
+                next_mode = "hands-free" if wants_hands_free else self.active_mode
+                next_source = "system" if wants_system_audio else self.active_source
+                if next_mode != self.active_mode or next_source != self.active_source:
+                    self.active_mode = next_mode
+                    self.active_source = next_source
+                    self.emit(
+                        "hotkey-mode-changed",
+                        {
+                            "shortcut": self.hotkey,
+                            "mode": self.active_mode,
+                            "source": self.active_source,
+                        },
+                    )
                 return
 
             if not combo_active and self.is_pressed:
                 self.is_pressed = False
                 released_mode = self.active_mode
+                released_source = self.active_source
                 self.active_mode = "hold"
-                self.emit("hotkey-released", {"shortcut": self.hotkey, "mode": released_mode})
+                self.active_source = "microphone"
+                self.emit(
+                    "hotkey-released",
+                    {
+                        "shortcut": self.hotkey,
+                        "mode": released_mode,
+                        "source": released_source,
+                    },
+                )
 
     def _hotkey_space_active(self, *, include_current_press: bool = False) -> bool:
         active_tokens = set(self.pressed_tokens)
         if include_current_press:
             active_tokens.add("space")
         return "space" in self.hotkey_tokens and self.hotkey_tokens.issubset(active_tokens)
+
+    def _system_audio_combo_active(self, *, include_current_press: bool = False) -> bool:
+        active_tokens = set(self.pressed_tokens)
+        if include_current_press:
+            active_tokens.add(self.system_audio_token)
+        return (
+            self.system_audio_token not in self.hotkey_tokens
+            and self.system_audio_token in active_tokens
+            and self.hotkey_tokens.issubset(active_tokens)
+        )
 
     def _should_consume_action_token(self, token: str, *, is_press: bool) -> bool:
         if token in self.suppressed_action_tokens:
@@ -312,6 +396,12 @@ class HotkeyListener:
             )
         elif token == "escape":
             wants_consume = self.consume_escape
+        elif token == self.system_audio_token and token not in self.hotkey_tokens:
+            wants_consume = (
+                self.consume_system_modifier
+                or self.active_source == "system"
+                or self._system_audio_combo_active(include_current_press=is_press)
+            )
         else:
             return False
 
@@ -324,14 +414,8 @@ class HotkeyListener:
         return False
 
     def _win32_event_filter(self, msg, data) -> bool:
-        key_token = None
         is_press = None
-
-        if data.vkCode == VK_SPACE:
-            key_token = "space"
-        elif data.vkCode == VK_ESCAPE:
-            key_token = "escape"
-
+        key_token = WIN32_TOKEN_VKS.get(data.vkCode)
         if key_token is None:
             return True
 
@@ -357,11 +441,7 @@ class HotkeyListener:
         keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
         key_token = None
 
-        if keycode == DARWIN_SPACE_KEYCODE:
-            key_token = "space"
-        elif keycode == DARWIN_ESCAPE_KEYCODE:
-            key_token = "escape"
-
+        key_token = DARWIN_TOKEN_KEYCODES.get(keycode)
         if key_token is None:
             return event
 
@@ -382,6 +462,7 @@ class HotkeyListener:
         with self.state_lock:
             self.consume_space = data.get("suppress_space") is True
             self.consume_escape = data.get("suppress_escape") is True
+            self.consume_system_modifier = data.get("suppress_system_modifier") is True
 
 
 def main() -> int:

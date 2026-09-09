@@ -241,6 +241,10 @@ const MAIN_TRANSLATIONS = {
     modelStatsReset: 'Model stats reset.',
     interfaceLanguageChanged: 'Interface language: {language}.',
     handsFreeActive: 'Hands-free mode active. Press {shortcut} to finish and transcribe.',
+    systemAudioActive: 'Capturing computer audio. Release {shortcut} to transcribe.',
+    systemAudioHandsFreeActive:
+      'Capturing computer audio in hands-free mode. Press {shortcut} to finish and transcribe.',
+    systemAudioUnavailable: 'Computer-audio transcription is available on Windows only.',
     waitingSwitchHandsFree:
       'Switching to {model}. Hands-free mode will start when the new worker is ready.',
     waitingSwitchHold: 'Switching to {model}. Wait for the new worker to finish loading.',
@@ -283,6 +287,10 @@ const MAIN_TRANSLATIONS = {
     modelStatsReset: 'Estatisticas de modelos resetadas.',
     interfaceLanguageChanged: 'Idioma da interface: {language}.',
     handsFreeActive: 'Modo hands-free ativo. Pressione {shortcut} para finalizar e transcrever.',
+    systemAudioActive: 'Capturando o audio do computador. Solte {shortcut} para transcrever.',
+    systemAudioHandsFreeActive:
+      'Capturando o audio do computador em hands-free. Pressione {shortcut} para finalizar e transcrever.',
+    systemAudioUnavailable: 'A transcricao do audio do computador esta disponivel apenas no Windows.',
     waitingSwitchHandsFree:
       'Trocando para {model}. O modo hands-free sera ativado quando o novo worker ficar pronto.',
     waitingSwitchHold: 'Trocando para {model}. Aguarde o novo worker ficar pronto.',
@@ -351,6 +359,7 @@ let lastOverlayAudioBands = [];
 let lastHotkeyActionHandling = {
   suppressEscape: null,
   suppressSpace: null,
+  suppressSystemModifier: null,
 };
 let lastAudioControllerConfigSignature = '';
 let isQuitting = false;
@@ -1136,7 +1145,9 @@ const state = {
   hotkeyOnline: false,
   hotkeyPressed: false,
   pendingStartMode: null,
+  pendingStartSource: null,
   captureMode: null,
+  captureSource: null,
   dictationSessionId: null,
   switchingModel: false,
   notice: '',
@@ -2268,6 +2279,7 @@ function snapshotState() {
     historyTotal: state.history.length,
     historyLimit: LOCAL_HISTORY_LIMIT,
     usageSummary: buildUsageSummary(state.usageStats),
+    systemAudioShortcut: getSystemAudioShortcut(state.shortcut),
   };
 }
 
@@ -2506,6 +2518,8 @@ function getHotkeyActionHandlingState() {
   return {
     suppressEscape: canConsumeEscape,
     suppressSpace: false,
+    suppressSystemModifier:
+      state.captureSource === 'system' || state.pendingStartSource === 'system',
   };
 }
 
@@ -2513,7 +2527,8 @@ function syncHotkeyActionHandling(force = false) {
   const next = getHotkeyActionHandlingState();
   const unchanged =
     next.suppressEscape === lastHotkeyActionHandling.suppressEscape &&
-    next.suppressSpace === lastHotkeyActionHandling.suppressSpace;
+    next.suppressSpace === lastHotkeyActionHandling.suppressSpace &&
+    next.suppressSystemModifier === lastHotkeyActionHandling.suppressSystemModifier;
 
   if (!force && unchanged) {
     return;
@@ -2523,6 +2538,7 @@ function syncHotkeyActionHandling(force = false) {
   sendHotkeyCommand('set-action-key-handling', {
     suppress_escape: next.suppressEscape,
     suppress_space: next.suppressSpace,
+    suppress_system_modifier: next.suppressSystemModifier,
   });
 }
 
@@ -2588,10 +2604,53 @@ function normalizeCaptureMode(mode) {
   return mode === 'hands-free' ? 'hands-free' : 'hold';
 }
 
+function normalizeCaptureSource(source) {
+  return source === 'system' ? 'system' : 'microphone';
+}
+
+function getSystemAudioModifier(shortcut = state.shortcut) {
+  const tokens = new Set(
+    String(shortcut || '')
+      .split('+')
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (!tokens.has('alt') && !tokens.has('option')) {
+    return process.platform === 'darwin' ? 'option' : 'alt';
+  }
+  if (!tokens.has('shift')) {
+    return 'shift';
+  }
+  return process.platform === 'darwin' ? 'option' : 'alt';
+}
+
+function getSystemAudioShortcut(shortcut = state.shortcut) {
+  return `${shortcut}+${getSystemAudioModifier(shortcut)}`;
+}
+
 function getPreferredPrimaryShortcutMode(mode = 'hold') {
   return state.autoEnableHandsFreeMode || process.platform === 'darwin'
     ? 'hands-free'
     : normalizeCaptureMode(mode);
+}
+
+function getCaptureNotice(captureMode, captureSource = 'microphone') {
+  if (captureSource === 'system' && captureMode === 'hands-free') {
+    return translateMain('systemAudioHandsFreeActive', {
+      shortcut: formatShortcutForDisplay(state.shortcut),
+    });
+  }
+  if (captureSource === 'system') {
+    return translateMain('systemAudioActive', {
+      shortcut: formatShortcutForDisplay(getSystemAudioShortcut()),
+    });
+  }
+  if (captureMode === 'hands-free') {
+    return translateMain('handsFreeActive', {
+      shortcut: formatShortcutForDisplay(state.shortcut),
+    });
+  }
+  return clearHandsFreeNotice();
 }
 
 function getWaitingNotice(captureMode) {
@@ -3157,16 +3216,28 @@ async function pasteLatestTranscription() {
   }
 }
 
-function startListening(mode = 'hold') {
+function startListening(mode = 'hold', source = 'microphone') {
   const captureMode = normalizeCaptureMode(mode);
+  const captureSource = normalizeCaptureSource(source);
 
   if (Date.now() < suppressStartRequestsUntil) {
+    return snapshotState();
+  }
+
+  if (captureSource === 'system' && process.platform !== 'win32') {
+    setState({
+      pendingStartMode: null,
+      pendingStartSource: null,
+      notice: '',
+      error: translateMain('systemAudioUnavailable'),
+    });
     return snapshotState();
   }
 
   if (!state.engineReady || !state.serviceOnline) {
     setState({
       pendingStartMode: captureMode,
+      pendingStartSource: captureSource,
       notice: getWaitingNotice(captureMode),
       error: '',
     });
@@ -3177,6 +3248,7 @@ function startListening(mode = 'hold') {
     releaseCaptureMute(true);
     setState({
       pendingStartMode: null,
+      pendingStartSource: null,
       notice: translateMain('transcriptionBusy'),
       error: '',
     });
@@ -3184,15 +3256,32 @@ function startListening(mode = 'hold') {
   }
 
   if (state.listening || state.captureMode !== null) {
-    if (captureMode === 'hands-free' && state.captureMode !== 'hands-free') {
-      setState({
-        captureMode,
-        notice: translateMain('handsFreeActive', {
-          shortcut: formatShortcutForDisplay(state.shortcut),
-        }),
-        error: '',
-      });
+    const nextMode = captureMode === 'hands-free' ? 'hands-free' : state.captureMode;
+    const nextSource = captureSource === 'system' ? 'system' : state.captureSource || 'microphone';
+    const modeChanged = nextMode !== state.captureMode;
+    const sourceChanged = nextSource !== (state.captureSource || 'microphone');
+    if (!modeChanged && !sourceChanged) {
+      return snapshotState();
+    }
+
+    setState({
+      captureMode: nextMode,
+      captureSource: nextSource,
+      notice: getCaptureNotice(nextMode, nextSource),
+      error: '',
+    });
+    if (modeChanged && nextMode === 'hands-free' && nextSource !== 'system') {
       playHandsFreeSoundIfEligible();
+    }
+    if (sourceChanged && nextSource === 'system') {
+      releaseCaptureMute(true);
+      sendOverlayFeedback('stop-sound');
+      if (state.dictationSessionId !== null) {
+        sendServiceCommand('start', {
+          session_id: state.dictationSessionId,
+          source: 'system',
+        });
+      }
     }
     return snapshotState();
   }
@@ -3202,28 +3291,32 @@ function startListening(mode = 'hold') {
   setOverlayAudioLevel(0);
   setState({
     captureMode,
+    captureSource,
     dictationSessionId: sessionId,
     pendingStartMode: null,
-    notice:
-      captureMode === 'hands-free'
-        ? translateMain('handsFreeActive', {
-            shortcut: formatShortcutForDisplay(state.shortcut),
-          })
-        : clearHandsFreeNotice(),
+    pendingStartSource: null,
+    notice: getCaptureNotice(captureMode, captureSource),
     error: '',
   });
-  if (Date.now() >= suppressStartSoundUntil) {
+  if (captureSource === 'system') {
+    sendOverlayFeedback('stop-sound');
+  } else if (Date.now() >= suppressStartSoundUntil) {
     sendOverlayFeedback('play-sound', { sound: 'start', interrupt: true });
   }
   suppressStartSoundUntil = 0;
   suppressStartRequestsUntil = 0;
-  engageCaptureMute();
-  sendServiceCommand('start', { session_id: sessionId });
+  if (captureSource !== 'system') {
+    engageCaptureMute();
+  }
+  sendServiceCommand('start', { session_id: sessionId, source: captureSource });
   return snapshotState();
 }
 
 function stopListening() {
-  const nextNotice = clearHandsFreeNotice();
+  const wasSystemAudio =
+    state.captureSource === 'system' || state.pendingStartSource === 'system';
+  const nextNotice =
+    isHandsFreeNotice(state.notice) || wasSystemAudio ? '' : clearHandsFreeNotice();
   const hadLiveCapture =
     state.captureMode !== null || state.listening || state.dictationSessionId !== null;
   resetDictationFeedbackState();
@@ -3233,6 +3326,8 @@ function stopListening() {
     setOverlayAudioLevel(0);
     setState({
       captureMode: null,
+      captureSource: null,
+      pendingStartSource: null,
       notice: nextNotice,
     });
     return snapshotState();
@@ -3242,7 +3337,9 @@ function stopListening() {
     setOverlayAudioLevel(0);
     setState({
       pendingStartMode: null,
+      pendingStartSource: null,
       captureMode: null,
+      captureSource: null,
       notice: nextNotice,
     });
     return snapshotState();
@@ -3250,15 +3347,17 @@ function stopListening() {
 
   setState({
     pendingStartMode: null,
+    pendingStartSource: null,
     captureMode: null,
+    captureSource: null,
     notice: nextNotice,
   });
-  if (hadLiveCapture) {
-    sendOverlayFeedback('play-sound', { sound: 'close', interrupt: true });
-  }
   setOverlayAudioLevel(0);
   if (state.dictationSessionId !== null) {
     sendServiceCommand('stop', { session_id: state.dictationSessionId });
+  }
+  if (hadLiveCapture && !wasSystemAudio) {
+    sendOverlayFeedback('play-sound', { sound: 'close', interrupt: true });
   }
   return snapshotState();
 }
@@ -3277,6 +3376,7 @@ function cancelDictation(source = 'escape') {
 
   const nextNotice =
     source === 'escape' ? 'Ditado cancelado por Esc.' : 'Ditado cancelado.';
+  const wasSystemAudio = state.captureSource === 'system';
   const sessionId = state.dictationSessionId;
   const shouldTranscribeCancelledRecording =
     source === 'escape' &&
@@ -3298,7 +3398,9 @@ function cancelDictation(source = 'escape') {
     hotkeyPressed: false,
     listening: false,
     pendingStartMode: null,
+    pendingStartSource: null,
     captureMode: null,
+    captureSource: null,
     dictationSessionId: null,
     pendingPaste: false,
     partial: '',
@@ -3308,13 +3410,15 @@ function cancelDictation(source = 'escape') {
   });
   setOverlayAudioLevel(0);
   releaseCaptureMute(true);
-  sendOverlayFeedback('play-sound', { sound: 'cancel', interrupt: true });
 
   if (state.serviceOnline && state.engineReady && sessionId !== null) {
     sendServiceCommand('cancel', {
       session_id: sessionId,
       transcribe_cancelled: shouldTranscribeCancelledRecording,
     });
+  }
+  if (!wasSystemAudio) {
+    sendOverlayFeedback('play-sound', { sound: 'cancel', interrupt: true });
   }
 
   return snapshotState();
@@ -3565,7 +3669,9 @@ async function handleCloudAudioPayload(payload, sessionId) {
       error: String((error && error.message) || error),
       pendingPaste: false,
       pendingStartMode: null,
+      pendingStartSource: null,
       captureMode: null,
+      captureSource: null,
       dictationSessionId: null,
       phase: 'idle',
     });
@@ -3626,6 +3732,7 @@ async function handleServiceEvent(event) {
     case 'ready':
       {
         const pendingStartMode = state.pendingStartMode;
+        const pendingStartSource = state.pendingStartSource || 'microphone';
         const shouldPlayLoadedFeedback = !hasPlayedLoadedFeedback;
         setOverlayAudioLevel(0);
         setState({
@@ -3647,7 +3754,7 @@ async function handleServiceEvent(event) {
           });
         }
         if (pendingStartMode === 'hands-free' || (pendingStartMode === 'hold' && state.hotkeyPressed)) {
-          startListening(pendingStartMode);
+          startListening(pendingStartMode, pendingStartSource);
         }
         break;
       }
@@ -3753,7 +3860,9 @@ async function handleServiceEvent(event) {
         error: payload.message || 'Erro no motor de ditado.',
         pendingPaste: false,
         pendingStartMode: null,
+        pendingStartSource: null,
         captureMode: null,
+        captureSource: null,
         dictationSessionId: null,
         phase: 'error',
       });
@@ -3767,6 +3876,7 @@ async function handleServiceEvent(event) {
 function handleHotkeyEvent(event) {
   const payload = event.payload || {};
   const hotkeyMode = getPreferredPrimaryShortcutMode(payload.mode);
+  const hotkeySource = normalizeCaptureSource(payload.source);
 
   switch (event.type) {
     case 'ready':
@@ -3775,6 +3885,9 @@ function handleHotkeyEvent(event) {
         shortcut: payload.shortcut || state.shortcut,
         pasteLastShortcut:
           payload.paste_last_shortcut || payload.pasteLastShortcut || state.pasteLastShortcut,
+        systemAudioShortcut:
+          payload.system_audio_shortcut ||
+          getSystemAudioShortcut(payload.shortcut || state.shortcut),
       });
       break;
     case 'hotkey-pressed':
@@ -3800,10 +3913,10 @@ function handleHotkeyEvent(event) {
       }
 
       ignoreNextHotkeyRelease = false;
-      startListening(hotkeyMode);
+      startListening(hotkeyMode, hotkeySource);
       break;
     case 'hotkey-mode-changed':
-      startListening(hotkeyMode);
+      startListening(hotkeyMode, hotkeySource);
       break;
     case 'hotkey-released':
       setState({
@@ -3820,6 +3933,7 @@ function handleHotkeyEvent(event) {
       if (state.pendingStartMode === 'hold') {
         setState({
           pendingStartMode: null,
+          pendingStartSource: null,
           notice: clearHandsFreeNotice(),
         });
       }
@@ -4150,6 +4264,7 @@ function bootDictationService() {
     engineReady: false,
     listening: false,
     captureMode: null,
+    captureSource: null,
     dictationSessionId: null,
     pendingPaste: false,
     partial: '',
@@ -4211,7 +4326,9 @@ function bootDictationService() {
       engineReady: false,
       phase: 'error',
       pendingStartMode: null,
+      pendingStartSource: null,
       captureMode: null,
+      captureSource: null,
       dictationSessionId: null,
       error: `Nao foi possivel iniciar o worker Python: ${error.message}`,
     });
@@ -4231,7 +4348,9 @@ function bootDictationService() {
       engineReady: false,
       listening: false,
       pendingStartMode: null,
+      pendingStartSource: null,
       captureMode: null,
+      captureSource: null,
       dictationSessionId: null,
       phase: 'offline',
       partial: '',
@@ -4259,6 +4378,7 @@ function bootHotkeyListener() {
   lastHotkeyActionHandling = {
     suppressEscape: null,
     suppressSpace: null,
+    suppressSystemModifier: null,
   };
   syncHotkeyActionHandling(true);
   trackChildProcess('hotkey_listener', localProcess);
@@ -4421,7 +4541,9 @@ async function restartDictationService() {
     listening: false,
     hotkeyPressed: false,
     pendingStartMode: null,
+    pendingStartSource: null,
     captureMode: null,
+    captureSource: null,
     dictationSessionId: null,
     pendingPaste: false,
     partial: '',
