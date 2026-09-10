@@ -348,6 +348,7 @@ let pasteLastRegisteredViaElectron = false;
 let lastPasteLastRequestAt = 0;
 const pendingOverlayFeedbacks = [];
 let currentDictationStartedAt = 0;
+let pendingSystemAudioFeedback = null;
 let dictationSessionCounter = 0;
 let captureMuteDepth = 0;
 const pendingAudioRestoreTimers = new Set();
@@ -2956,6 +2957,19 @@ function sendOverlayFeedback(type, payload = {}) {
   overlayWindow.webContents.send('overlay-feedback', message);
 }
 
+// Loopback captures our output too. Wait for the worker to close the stream.
+function playPendingSystemAudioFeedback(sessionId) {
+  if (!pendingSystemAudioFeedback || pendingSystemAudioFeedback.sessionId !== sessionId) {
+    return;
+  }
+  const { sound } = pendingSystemAudioFeedback;
+  pendingSystemAudioFeedback = null;
+  if (state.captureMode !== null || state.pendingStartMode !== null) {
+    return;
+  }
+  sendOverlayFeedback('play-sound', { sound, interrupt: true });
+}
+
 function resetDictationFeedbackState() {
   currentDictationStartedAt = 0;
 }
@@ -2965,7 +2979,9 @@ function playHandsFreeSoundIfEligible() {
     return;
   }
 
-  if (Date.now() - currentDictationStartedAt < HANDS_FREE_SOUND_DELAY_MS) {
+  // Microphone activation already plays a start cue; system capture does not.
+  if (state.captureSource !== 'system' &&
+      Date.now() - currentDictationStartedAt < HANDS_FREE_SOUND_DELAY_MS) {
     return;
   }
 
@@ -3270,9 +3286,6 @@ function startListening(mode = 'hold', source = 'microphone') {
       notice: getCaptureNotice(nextMode, nextSource),
       error: '',
     });
-    if (modeChanged && nextMode === 'hands-free' && nextSource !== 'system') {
-      playHandsFreeSoundIfEligible();
-    }
     if (sourceChanged && nextSource === 'system') {
       releaseCaptureMute(true);
       sendOverlayFeedback('stop-sound');
@@ -3283,9 +3296,14 @@ function startListening(mode = 'hold', source = 'microphone') {
         });
       }
     }
+    // Queue after stop-sound when upgrading the source, or it clears this cue.
+    if (nextMode === 'hands-free' && (modeChanged || sourceChanged)) {
+      playHandsFreeSoundIfEligible();
+    }
     return snapshotState();
   }
 
+  pendingSystemAudioFeedback = null;
   const sessionId = getNextDictationSessionId();
   currentDictationStartedAt = Date.now();
   setOverlayAudioLevel(0);
@@ -3300,6 +3318,9 @@ function startListening(mode = 'hold', source = 'microphone') {
   });
   if (captureSource === 'system') {
     sendOverlayFeedback('stop-sound');
+    if (captureMode === 'hands-free') {
+      playHandsFreeSoundIfEligible();
+    }
   } else if (Date.now() >= suppressStartSoundUntil) {
     sendOverlayFeedback('play-sound', { sound: 'start', interrupt: true });
   }
@@ -3354,6 +3375,9 @@ function stopListening() {
   });
   setOverlayAudioLevel(0);
   if (state.dictationSessionId !== null) {
+    if (wasSystemAudio && hadLiveCapture) {
+      pendingSystemAudioFeedback = { sessionId: state.dictationSessionId, sound: 'close' };
+    }
     sendServiceCommand('stop', { session_id: state.dictationSessionId });
   }
   if (hadLiveCapture && !wasSystemAudio) {
@@ -3376,7 +3400,8 @@ function cancelDictation(source = 'escape') {
 
   const nextNotice =
     source === 'escape' ? 'Ditado cancelado por Esc.' : 'Ditado cancelado.';
-  const wasSystemAudio = state.captureSource === 'system';
+  const wasSystemAudio = state.captureSource === 'system' ||
+    pendingSystemAudioFeedback?.sessionId === state.dictationSessionId;
   const sessionId = state.dictationSessionId;
   const shouldTranscribeCancelledRecording =
     source === 'escape' &&
@@ -3412,6 +3437,9 @@ function cancelDictation(source = 'escape') {
   releaseCaptureMute(true);
 
   if (state.serviceOnline && state.engineReady && sessionId !== null) {
+    if (wasSystemAudio) {
+      pendingSystemAudioFeedback = { sessionId, sound: 'cancel' };
+    }
     sendServiceCommand('cancel', {
       session_id: sessionId,
       transcribe_cancelled: shouldTranscribeCancelledRecording,
@@ -3729,6 +3757,9 @@ async function handleServiceEvent(event) {
   const isBackground = isBackgroundTranscriptionSession(sessionId);
 
   switch (event.type) {
+    case 'capture-closed':
+      playPendingSystemAudioFeedback(sessionId);
+      break;
     case 'ready':
       {
         const pendingStartMode = state.pendingStartMode;
@@ -4245,6 +4276,7 @@ function bootDictationService() {
     return;
   }
 
+  pendingSystemAudioFeedback = null;
   const launchSpec = getWorkerLaunchSpec('dictation_service');
   const localToken = ++serviceToken;
   const localProcess = spawn(launchSpec.command, launchSpec.args, {

@@ -507,6 +507,7 @@ class DictationService:
         session_id = self._coerce_session_id(payload) or self.current_session_id
         source = self.capture_source
         self._close_stream()
+        self.emit("capture-closed", {"session_id": session_id})
         self._drain_audio_queue()
         self.listening = False
 
@@ -552,6 +553,7 @@ class DictationService:
 
         source = self.capture_source
         self._close_stream()
+        self.emit("capture-closed", {"session_id": session_id})
         if should_transcribe_cancelled:
             self._drain_audio_queue()
             if source == "system":
