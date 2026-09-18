@@ -6,7 +6,7 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/feedback-audio.js && node --check src/renderer/overlay.js && npm run test:feedback-audio && npm run test:release-version && npm run test:system-audio-wiring",
+    "check": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/overlay-preload.js && node --check src/renderer/renderer.js && node --check src/renderer/feedback-audio.js && node --check src/renderer/overlay.js && npm run test:feedback-audio && npm run test:release-version && npm run test:system-audio-wiring && npm run test:cloud-retries",
     "test:system-audio-wiring": "node scripts/test-system-audio-wiring.js",
     "test:feedback-audio": "node scripts/test-feedback-audio.js",
     "test:feedback-audio-runtime": "electron scripts/test-feedback-audio-runtime.js",
@@ -20,7 +20,8 @@
     "dist:mac:x64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --x64 --publish never",
     "dist:mac:arm64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --arm64 --publish never",
     "publish:mac:x64": "npm run dist:mac:x64 && node scripts/publish-mac.js x64",
-    "publish:mac:arm64": "npm run dist:mac:arm64 && node scripts/publish-mac.js arm64"
+    "publish:mac:arm64": "npm run dist:mac:arm64 && node scripts/publish-mac.js arm64",
+    "test:cloud-retries": "node scripts/test-cloud-retries.js"
   },
   "build": {
     "appId": "com.openflow.app",

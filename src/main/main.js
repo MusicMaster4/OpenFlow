@@ -76,6 +76,8 @@ const CLOUD_RETRY_LIMIT = 20;
 const CLOUD_RETRY_TTL_MS = 60 * 60 * 1000;
 const CLOUD_RETRY_PRUNE_INTERVAL_MS = 60 * 1000;
 const CLOUD_TRANSCRIPTION_TIMEOUT_MS = 120000;
+const CLOUD_TRANSCRIPTION_MAX_ATTEMPTS = 7;
+const pendingCloudRetryIds = new Set();
 const BACKGROUND_TRANSCRIPTION_SESSION_TTL_MS = 30 * 60 * 1000;
 const MODEL_OPTIONS = [
   {
@@ -1666,7 +1668,7 @@ function getCloudRetryRecords() {
 }
 
 function getCloudRetrySnapshot() {
-  return getCloudRetryRecords().map((record) => ({
+  return getCloudRetryRecords().filter((record) => !pendingCloudRetryIds.has(record.id)).map((record) => ({
     id: record.id,
     model: record.model,
     language: record.language || 'unknown',
@@ -3647,6 +3649,23 @@ async function transcribeWithOpenRouter(audioPayload, options = {}) {
   };
 }
 
+async function transcribeWithOpenRouterRetries(audioPayload, options = {}) {
+  for (let attempt = 1; attempt <= CLOUD_TRANSCRIPTION_MAX_ATTEMPTS; attempt += 1) {
+    if (options.isCancelled?.()) {
+      throw new Error('Cloud transcription session ended.');
+    }
+    try {
+      return await transcribeWithOpenRouter(audioPayload, options);
+    } catch (error) {
+      if (attempt === CLOUD_TRANSCRIPTION_MAX_ATTEMPTS || options.isCancelled?.()) {
+        throw error;
+      }
+      // Give a rate-limited provider time to recover while the UI stays transcribing.
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 8000)));
+    }
+  }
+}
+
 async function handleCloudAudioPayload(payload, sessionId) {
   const isBackground = isBackgroundTranscriptionSession(sessionId);
   if (!isBackground && !isCurrentDictationSession(sessionId)) {
@@ -3661,6 +3680,7 @@ async function handleCloudAudioPayload(payload, sessionId) {
     '',
     { silent: true },
   );
+  pendingCloudRetryIds.add(retryRecord.id);
 
   if (!isBackground && sessionId !== null) {
     activeCloudTranscriptionSessions.add(sessionId);
@@ -3674,7 +3694,9 @@ async function handleCloudAudioPayload(payload, sessionId) {
   }
 
   try {
-    const result = await transcribeWithOpenRouter(payload);
+    const result = await transcribeWithOpenRouterRetries(retryRecord, {
+      isCancelled: () => !isBackground && !isCurrentDictationSession(sessionId),
+    });
     if (!isBackground && !isCurrentDictationSession(sessionId)) {
       deleteCloudRetry(retryRecord.id);
       return;
@@ -3686,6 +3708,7 @@ async function handleCloudAudioPayload(payload, sessionId) {
       deleteCloudRetry(retryRecord.id);
       return;
     }
+    pendingCloudRetryIds.delete(retryRecord.id);
     updateCloudRetryError(retryRecord.id, error);
     if (isBackground) {
       return;
@@ -3704,6 +3727,7 @@ async function handleCloudAudioPayload(payload, sessionId) {
       phase: 'idle',
     });
   } finally {
+    pendingCloudRetryIds.delete(retryRecord.id);
     if (sessionId !== null) {
       activeCloudTranscriptionSessions.delete(sessionId);
     }
@@ -3714,6 +3738,9 @@ async function handleCloudAudioPayload(payload, sessionId) {
 }
 
 async function retryCloudTranscription(id) {
+  if (pendingCloudRetryIds.has(id)) {
+    return snapshotState();
+  }
   const record = readCloudRetryRecord(id);
   if (!record || isCloudRetryExpired(record)) {
     if (record) {
@@ -3722,13 +3749,15 @@ async function retryCloudTranscription(id) {
     throw new Error('Saved recording was not found.');
   }
 
+  pendingCloudRetryIds.add(record.id);
   setState({
     phase: 'transcribing',
     error: '',
+    cloudRetries: getCloudRetrySnapshot(),
   });
 
   try {
-    const result = await transcribeWithOpenRouter(record, { model: record.model });
+    const result = await transcribeWithOpenRouterRetries(record, { model: record.model });
     await commitTranscription(result, null, { paste: false });
     deleteCloudRetry(record.id);
     setState({
@@ -3736,6 +3765,7 @@ async function retryCloudTranscription(id) {
       phase: state.listening ? 'listening' : 'idle',
     });
   } catch (error) {
+    pendingCloudRetryIds.delete(record.id);
     const updated = {
       ...record,
       error: String((error && error.message) || error),
@@ -3746,6 +3776,8 @@ async function retryCloudTranscription(id) {
       error: updated.error,
       phase: state.listening ? 'listening' : 'idle',
     });
+  } finally {
+    pendingCloudRetryIds.delete(record.id);
   }
 
   return snapshotState();
