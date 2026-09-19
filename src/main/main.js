@@ -19,6 +19,7 @@ const {
 } = require('electron');
 const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
+const { requestTranscription, isRetryableCloudError, compatibilityFallback } = require('./cloud-transcription');
 
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'option+space' : 'ctrl+windows';
 const DEFAULT_PASTE_LAST_SHORTCUT =
@@ -78,6 +79,8 @@ const CLOUD_RETRY_PRUNE_INTERVAL_MS = 60 * 1000;
 const CLOUD_TRANSCRIPTION_TIMEOUT_MS = 120000;
 const CLOUD_TRANSCRIPTION_MAX_ATTEMPTS = 7;
 const pendingCloudRetryIds = new Set();
+const pendingCloudConversions = new Map();
+let cloudPerformanceLogQueue = Promise.resolve();
 const BACKGROUND_TRANSCRIPTION_SESSION_TTL_MS = 30 * 60 * 1000;
 const MODEL_OPTIONS = [
   {
@@ -2498,6 +2501,9 @@ function sendServiceCommand(type, payload = {}) {
     return;
   }
 
+  if (type === 'stop' || type === 'cancel') {
+    payload = { ...payload, stopped_at_ms: Date.now() };
+  }
   serviceProcess.stdin.write(`${JSON.stringify({ type, payload })}\n`);
 }
 
@@ -3500,6 +3506,7 @@ function classifyWarning(message) {
 }
 
 async function commitTranscription(payload, sessionId, options = {}) {
+  const commitStartedAt = Date.now();
   const text = String(payload.text || '').trim();
   if (!text) {
     return;
@@ -3547,11 +3554,13 @@ async function commitTranscription(payload, sessionId, options = {}) {
 
   setState(nextState);
   savePersistentState();
+  const persistenceMs = Date.now() - commitStartedAt;
 
   if (!shouldPaste || isBackground) {
-    return;
+    return { persistenceMs, pasteMs: 0 };
   }
 
+  const pasteStartedAt = Date.now();
   try {
     await insertTextIntoFocusedApp(pasteText);
   } catch (error) {
@@ -3565,108 +3574,103 @@ async function commitTranscription(payload, sessionId, options = {}) {
       phase: state.listening ? 'listening' : 'idle',
     });
   }
+  return { persistenceMs, pasteMs: Date.now() - pasteStartedAt };
+}
+
+function recordCloudPerformance(record) {
+  // Metadata only: never persist audio, transcript text, credentials or request headers.
+  const line = JSON.stringify({ timestamp: new Date().toISOString(), ...record }) + '\n';
+  cloudPerformanceLogQueue = cloudPerformanceLogQueue.then(async () => {
+    const directory = getStorageDirectory();
+    const file = path.join(directory, 'cloud-performance.jsonl');
+    await fs.promises.mkdir(directory, { recursive: true });
+    const size = await fs.promises.stat(file).then((stat) => stat.size, () => 0);
+    if (size > 1024 * 1024) {
+      await fs.promises.copyFile(file, `${file}.previous`);
+      await fs.promises.writeFile(file, '');
+    }
+    await fs.promises.appendFile(file, line);
+  }).catch(() => {});
+}
+
+function convertCloudAudioToWav(payload) {
+  if (!serviceProcess || !serviceProcess.stdin.writable) {
+    return Promise.reject(new Error('Audio worker is unavailable for WAV compatibility conversion.'));
+  }
+  const requestId = createCloudRetryId();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pendingCloudConversions.delete(requestId);
+      reject(new Error('Audio compatibility conversion timed out.'));
+    }, 15000);
+    pendingCloudConversions.set(requestId, { resolve, reject, timer });
+    sendServiceCommand('convert-cloud-audio', { data: payload.data, request_id: requestId });
+  });
 }
 
 async function transcribeWithOpenRouter(audioPayload, options = {}) {
   const apiKey = readOpenRouterApiKey();
   if (!apiKey) {
-    throw new Error('OpenRouter API key is not configured.');
+    throw Object.assign(new Error('OpenRouter API key is not configured.'), { retryable: false });
   }
-
-  const model = normalizeCloudTranscriptionModel(
-    audioPayload.model || options.model || state.cloudTranscriptionModel,
-  );
-  const body = {
-    model,
-    input_audio: {
-      data: String(audioPayload.data || ''),
-      format: String(audioPayload.format || 'wav').toLowerCase(),
-    },
-    temperature: 0,
-  };
-  const requestLanguage = getSingleOpenRouterLanguage(state.allowedLanguages);
-  if (requestLanguage) {
-    body.language = requestLanguage;
-  }
-
-  const startedAt = Date.now();
-  const abortController = new AbortController();
-  const timeout = setTimeout(() => {
-    abortController.abort();
-  }, CLOUD_TRANSCRIPTION_TIMEOUT_MS);
-  let response = null;
-
-  try {
-    response = await fetch(OPENROUTER_STT_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'User-Agent': `${APP_NAME}/${app.getVersion()}`,
-      },
-      body: JSON.stringify(body),
-      signal: abortController.signal,
-    });
-  } catch (error) {
-    if (error && error.name === 'AbortError') {
-      throw new Error('OpenRouter transcription timed out.');
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const responseText = await response.text();
-  let result = null;
-  try {
-    result = responseText ? JSON.parse(responseText) : {};
-  } catch (_error) {
-    result = {};
-  }
-
-  if (!response.ok) {
-    const message = result && (result.error?.message || result.message);
-    throw new Error(message || `OpenRouter transcription failed with HTTP ${response.status}.`);
-  }
-
-  const text = String((result && result.text) || '').trim();
-  if (!text) {
-    throw new Error('OpenRouter returned an empty transcription.');
-  }
-
-  return {
-    engine: 'cloud',
-    model,
-    text,
-    language: requestLanguage || 'unknown',
-    transcription_ms: Date.now() - startedAt,
-    audio_duration_ms:
-      Number(audioPayload.audio_duration_ms || audioPayload.audioDurationMs) ||
-      Number(result?.usage?.seconds || 0) * 1000 ||
-      0,
-    cost_usd: Number(result?.usage?.cost) || 0,
-  };
+  return requestTranscription({
+    audioPayload,
+    apiKey,
+    model: normalizeCloudTranscriptionModel(audioPayload.model || options.model || state.cloudTranscriptionModel),
+    language: getSingleOpenRouterLanguage(state.allowedLanguages),
+    endpoint: OPENROUTER_STT_URL,
+    userAgent: `${APP_NAME}/${app.getVersion()}`,
+    timeoutMs: CLOUD_TRANSCRIPTION_TIMEOUT_MS,
+    forceJson: options.forceJson,
+  });
 }
 
 async function transcribeWithOpenRouterRetries(audioPayload, options = {}) {
+  const startedAt = Date.now();
+  let payload = audioPayload;
+  let forceJson = false;
+  let retryWaitMs = 0;
+  const attempts = [];
   for (let attempt = 1; attempt <= CLOUD_TRANSCRIPTION_MAX_ATTEMPTS; attempt += 1) {
     if (options.isCancelled?.()) {
       throw new Error('Cloud transcription session ended.');
     }
     try {
-      return await transcribeWithOpenRouter(audioPayload, options);
+      const result = await transcribeWithOpenRouter(payload, { ...options, forceJson });
+      attempts.push(result.timing || {});
+      result.transcription_ms = Date.now() - startedAt;
+      result.cloud_timing = { attempts, retryWaitMs, requestTotalMs: result.transcription_ms };
+      recordCloudPerformance({ event: 'request-complete', retryId: audioPayload.id,
+        model: result.model, ...result.cloud_timing });
+      return result;
     } catch (error) {
-      if (attempt === CLOUD_TRANSCRIPTION_MAX_ATTEMPTS || options.isCancelled?.()) {
+      attempts.push(error.timing || { status: error.status || 0 });
+      const fallback = compatibilityFallback(error, payload, forceJson);
+      recordCloudPerformance({ event: 'attempt-failed', retryId: audioPayload.id, attempt, model: payload.model,
+        status: error.status || 0, timing: error.timing, fallback });
+      if (attempt === CLOUD_TRANSCRIPTION_MAX_ATTEMPTS || options.isCancelled?.() ||
+          (!fallback && !isRetryableCloudError(error))) {
         throw error;
       }
-      // Give a rate-limited provider time to recover while the UI stays transcribing.
-      await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 8000)));
+      if (fallback === 'wav') {
+        payload = { ...payload, ...await convertCloudAudioToWav(payload) };
+        continue;
+      }
+      if (fallback === 'json') {
+        forceJson = true;
+        continue;
+      }
+      // Keep all seven attempts for 429, network errors, timeouts and provider failures.
+      const delay = Math.max(Math.min(1000 * 2 ** (attempt - 1), 8000), error.retryAfterMs || 0);
+      const waitStartedAt = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      retryWaitMs += Date.now() - waitStartedAt;
     }
   }
 }
 
 async function handleCloudAudioPayload(payload, sessionId) {
+  const receivedAt = Date.now();
   const isBackground = isBackgroundTranscriptionSession(sessionId);
   if (!isBackground && !isCurrentDictationSession(sessionId)) {
     return;
@@ -3681,6 +3685,7 @@ async function handleCloudAudioPayload(payload, sessionId) {
     { silent: true },
   );
   pendingCloudRetryIds.add(retryRecord.id);
+  const backupMs = Date.now() - receivedAt;
 
   if (!isBackground && sessionId !== null) {
     activeCloudTranscriptionSessions.add(sessionId);
@@ -3701,7 +3706,16 @@ async function handleCloudAudioPayload(payload, sessionId) {
       deleteCloudRetry(retryRecord.id);
       return;
     }
-    await commitTranscription(result, sessionId, { paste: !isBackground, background: isBackground });
+    const readyAt = Date.now();
+    const stoppedAt = Number(payload.stopped_at_ms) || receivedAt;
+    result.transcription_ms = Math.max(0, readyAt - stoppedAt);
+    const commitTiming = await commitTranscription(result, sessionId, { paste: !isBackground, background: isBackground });
+    recordCloudPerformance({ event: 'dictation-complete', retryId: retryRecord.id, model: result.model,
+      audioDurationMs: result.audio_duration_ms, encodingMs: Number(payload.encoding_ms) || 0,
+      captureAndEncodingMs: Math.max(0, (Number(payload.audio_ready_at_ms) || receivedAt) - stoppedAt),
+      ipcMs: Math.max(0, receivedAt - (Number(payload.audio_ready_at_ms) || receivedAt)),
+      backupMs, textReadyMs: result.transcription_ms, commitAndPasteMs: Date.now() - readyAt,
+      totalMs: Math.max(0, Date.now() - stoppedAt), ...result.cloud_timing, ...commitTiming });
     deleteCloudRetry(retryRecord.id);
   } catch (error) {
     if (!isBackground && !isCurrentDictationSession(sessionId)) {
@@ -3789,6 +3803,16 @@ async function handleServiceEvent(event) {
   const isBackground = isBackgroundTranscriptionSession(sessionId);
 
   switch (event.type) {
+    case 'cloud-audio-converted': {
+      const pending = pendingCloudConversions.get(payload.request_id);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingCloudConversions.delete(payload.request_id);
+        if (payload.error) pending.reject(new Error(payload.error));
+        else pending.resolve({ data: payload.data, format: payload.format });
+      }
+      break;
+    }
     case 'capture-closed':
       playPendingSystemAudioFeedback(sessionId);
       break;

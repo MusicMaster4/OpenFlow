@@ -57,6 +57,7 @@ fi
 "$PYTHON_EXE" "${DICTATION_ARGS[@]}" \
   --name dictation_service \
   --collect-all faster_whisper \
+  --collect-all av \
   --collect-all ctranslate2 \
   --collect-all tokenizers \
   --collect-all huggingface_hub \

@@ -21,7 +21,7 @@
     "dist:mac:arm64": "npm run build:icons && npm run build:python && electron-builder --mac dmg zip --arm64 --publish never",
     "publish:mac:x64": "npm run dist:mac:x64 && node scripts/publish-mac.js x64",
     "publish:mac:arm64": "npm run dist:mac:arm64 && node scripts/publish-mac.js arm64",
-    "test:cloud-retries": "node scripts/test-cloud-retries.js"
+    "test:cloud-retries": "node scripts/test-cloud-retries.js && node scripts/test-cloud-transport.js"
   },
   "build": {
     "appId": "com.openflow.app",

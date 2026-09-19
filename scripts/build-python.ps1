@@ -56,6 +56,7 @@ foreach ($module in $optionalCollectModules) {
   '--name' 'dictation_service' `
   '--hidden-import' 'sounddevice' `
   '--collect-all' 'faster_whisper' `
+  '--collect-all' 'av' `
   '--collect-all' 'ctranslate2' `
   '--collect-all' 'tokenizers' `
   '--collect-all' 'huggingface_hub' `

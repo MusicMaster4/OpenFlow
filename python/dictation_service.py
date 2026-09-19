@@ -1,4 +1,3 @@
-import base64
 import json
 import math
 import os
@@ -8,7 +7,6 @@ import sys
 import threading
 import time
 import io
-import wave
 from collections import deque
 from pathlib import Path
 from typing import Optional
@@ -105,6 +103,7 @@ from faster_whisper import WhisperModel
 from faster_whisper.tokenizer import _LANGUAGE_CODES
 
 from system_audio import SystemAudioCapture
+from cloud_audio import encode_cloud_audio, cloud_audio_to_wav
 
 load_dotenv()
 
@@ -174,7 +173,8 @@ class DictationService:
         self.allowed_languages = normalize_languages(os.getenv("ALLOWED_LANGUAGES", "en"))
         self.stop_event = threading.Event()
         self.audio_queue: queue.Queue[bytes] = queue.Queue()
-        self.segment_queue: queue.Queue[Optional[tuple[int, np.ndarray]]] = queue.Queue()
+        self.segment_queue: queue.Queue[Optional[tuple[int, np.ndarray, float]]] = queue.Queue()
+        self.emit_lock = threading.Lock()
         self.processing_thread = threading.Thread(target=self._process_audio_loop, daemon=True)
         self.transcriber_thread = threading.Thread(target=self._transcribe_loop, daemon=True)
         self.stream: Optional[sd.InputStream] = None
@@ -199,7 +199,9 @@ class DictationService:
         self.recording_started_at = 0.0
 
     def emit(self, event_type: str, payload: Optional[dict] = None) -> None:
-        print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
+        # Large audio/conversion messages must not interleave with level/state events.
+        with self.emit_lock:
+            print(json.dumps({"type": event_type, "payload": payload or {}}, ensure_ascii=False), flush=True)
 
     def boot(self) -> None:
         self.emit("state", {"phase": "booting", "listening": False})
@@ -501,6 +503,7 @@ class DictationService:
         )
 
     def stop(self, payload: Optional[dict] = None) -> None:
+        stopped_at_ms = (payload or {}).get("stopped_at_ms") or time.time() * 1000
         if not self.listening:
             return
 
@@ -536,7 +539,7 @@ class DictationService:
                 {"audio_duration_ms": pending_audio_ms, "session_id": session_id},
             )
 
-        if self._queue_pending_transcription(session_id):
+        if self._queue_pending_transcription(session_id, stopped_at_ms):
             self.emit("state", {"phase": "transcribing", "listening": False, "session_id": session_id})
         else:
             if self.current_session_id == session_id:
@@ -544,6 +547,7 @@ class DictationService:
             self.emit("state", {"phase": "idle", "listening": False, "session_id": session_id})
 
     def cancel(self, payload: Optional[dict] = None) -> None:
+        stopped_at_ms = (payload or {}).get("stopped_at_ms") or time.time() * 1000
         session_id = self._coerce_session_id(payload) or self.current_session_id
         should_transcribe_cancelled = bool(
             payload and payload.get("transcribe_cancelled") is True and session_id is not None
@@ -587,7 +591,7 @@ class DictationService:
                     },
                 )
             else:
-                self._queue_pending_transcription(session_id)
+                self._queue_pending_transcription(session_id, stopped_at_ms)
         self.emit("state", {"phase": "idle", "listening": False, "session_id": session_id})
 
     def configure(self, payload: Optional[dict]) -> None:
@@ -754,7 +758,7 @@ class DictationService:
         audio = np.frombuffer(b"".join(frames), dtype=np.int16).astype(np.float32) / 32768.0
         self.pending_segments.append(audio)
 
-    def _queue_pending_transcription(self, session_id: Optional[int]) -> bool:
+    def _queue_pending_transcription(self, session_id: Optional[int], stopped_at_ms: float = 0) -> bool:
         if not self.pending_segments or session_id is None:
             return False
 
@@ -774,27 +778,15 @@ class DictationService:
             merged_audio = np.concatenate(merged_parts)
 
         self.pending_segments = []
-        self.segment_queue.put((session_id, merged_audio))
+        self.segment_queue.put((session_id, merged_audio, stopped_at_ms))
         return True
-
-    def _encode_wav_base64(self, segment: np.ndarray) -> str:
-        clipped = np.clip(segment, -1.0, 1.0)
-        pcm = (clipped * 32767.0).astype(np.int16)
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)
-            wav_file.setframerate(self.sample_rate)
-            wav_file.writeframes(pcm.tobytes())
-
-        return base64.b64encode(buffer.getvalue()).decode("ascii")
 
     def _transcribe_loop(self) -> None:
         while not self.stop_event.is_set():
             queued_segment = self.segment_queue.get()
             if queued_segment is None:
                 break
-            session_id, segment = queued_segment
+            session_id, segment, stopped_at_ms = queued_segment
 
             if session_id in self.canceled_session_ids:
                 continue
@@ -806,11 +798,14 @@ class DictationService:
                 audio_duration_ms = round((len(segment) / self.sample_rate) * 1000, 1)
                 started_at = time.perf_counter()
                 if self.cloud_mode:
+                    encoded = encode_cloud_audio(segment, self.sample_rate)
                     self.emit(
                         "audio",
                         {
-                            "format": "wav",
-                            "data": self._encode_wav_base64(segment),
+                            **encoded,
+                            "encoding_ms": round((time.perf_counter() - started_at) * 1000, 1),
+                            "stopped_at_ms": stopped_at_ms,
+                            "audio_ready_at_ms": time.time() * 1000,
                             "language": selected_language,
                             "audio_duration_ms": audio_duration_ms,
                             "session_id": session_id,
@@ -928,6 +923,12 @@ def main() -> int:
                 service.cancel(payload)
             elif command_type == "configure":
                 service.configure(payload)
+            elif command_type == "convert-cloud-audio":
+                try:
+                    converted = cloud_audio_to_wav(payload)
+                    service.emit("cloud-audio-converted", {**converted, "request_id": payload["request_id"]})
+                except Exception as error:
+                    service.emit("cloud-audio-converted", {"request_id": payload["request_id"], "error": str(error)})
             elif command_type == "shutdown":
                 service.shutdown()
                 break
