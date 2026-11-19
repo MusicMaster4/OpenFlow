@@ -116,6 +116,9 @@ jobs:
       - name: Validate JavaScript
         run: npm run check
 
+      - name: Validate Windows clipboard insertion
+        run: npm run test:text-insertion-windows
+
       - name: Build Windows package
         env:
           OPENFLOW_PUBLISH: never

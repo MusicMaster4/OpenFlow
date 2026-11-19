@@ -1,6 +1,8 @@
 param(
-  [Parameter(Mandatory = $true)]
   [string]$EncodedText,
+
+  # Keep native interop compiled and receive arbitrarily long UTF-8 JSON over stdin.
+  [switch]$Server,
 
   # How the text reaches the focused app. 'auto' inspects the foreground window
   # and picks the shortcut that app actually understands.
@@ -13,22 +15,17 @@ param(
   [int]$RestoreDelayMs = 400
 )
 
-try {
-  $Text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedText))
-} catch {
-  throw "Failed to decode UTF-8 text for sending."
-}
-
-if ([string]::IsNullOrEmpty($Text)) {
-  exit 0
-}
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # Inject the paste keystroke at a low level. keybd_event is far more reliable than
 # SendKeys across applications (especially Chromium/Electron targets and apps that
-# debounce the higher-level WM_* messages SendKeys relies on).
+# debounce the higher-level WM_* messages SendKeys relies on). Paste chords
+# use checked SendInput batches; keybd_event is reserved for stuck modifiers.
 if (-not ([System.Management.Automation.PSTypeName]'OpenFlow.Native.Keyboard').Type) {
   Add-Type -Namespace 'OpenFlow.Native' -Name 'Keyboard' -UsingNamespace 'System.Text' -MemberDefinition @"
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -220,43 +217,25 @@ function Resolve-PasteMethod {
 function Send-PasteShortcut {
   param([string]$PasteMethod)
 
-  switch ($PasteMethod) {
-    'shift-insert' {
-      Send-Key -Vk $VK_LSHIFT
-      Start-Sleep -Milliseconds 8
-      Send-Key -Vk $VK_INSERT
-      Start-Sleep -Milliseconds 30
-      Send-Key -Vk $VK_INSERT -KeyUp
-      Send-Key -Vk $VK_LSHIFT -KeyUp
-    }
-    'ctrl-shift-v' {
-      Send-Key -Vk $VK_LCONTROL
-      Start-Sleep -Milliseconds 8
-      Send-Key -Vk $VK_LSHIFT
-      Start-Sleep -Milliseconds 8
-      Send-Key -Vk $VK_V
-      Start-Sleep -Milliseconds 30
-      Send-Key -Vk $VK_V -KeyUp
-      Send-Key -Vk $VK_LSHIFT -KeyUp
-      Send-Key -Vk $VK_LCONTROL -KeyUp
-    }
-    default {
-      Send-Key -Vk $VK_LCONTROL
-      Start-Sleep -Milliseconds 8
-      Send-Key -Vk $VK_V
-      Start-Sleep -Milliseconds 30
-      Send-Key -Vk $VK_V -KeyUp
-      Send-Key -Vk $VK_LCONTROL -KeyUp
-    }
+  $mode = switch ($PasteMethod) {
+    'shift-insert' { 1 }
+    'ctrl-shift-v' { 2 }
+    default { 0 }
+  }
+  # Submit the whole chord in one SendInput batch. Windows reports rejected input
+  # instead of silently succeeding as keybd_event did.
+  $expected = if ($mode -eq 2) { 6 } else { 4 }
+  $sent = [OpenFlow.Native.Typist]::Paste($mode)
+  if ($sent -ne $expected) {
+    throw "Windows accepted $sent of $expected paste keyboard events. Check the target app's privileges."
   }
 }
 
-function Send-TextAsKeystrokes {
-  param([Parameter(Mandatory = $true)][string]$Value)
+function Initialize-InputType {
 
   # Clipboard-free fallback: synthesise the characters themselves with
-  # KEYEVENTF_UNICODE. This works in apps that refuse clipboard paste entirely
-  # and needs SendInput, so the interop type is only compiled when it is used.
+  # KEYEVENTF_UNICODE. Compile once at worker startup so both paste shortcuts and
+  # the clipboard-free fallback are ready before the first request.
   if (-not ([System.Management.Automation.PSTypeName]'OpenFlow.Native.Typist').Type) {
     Add-Type -TypeDefinition @"
 using System;
@@ -310,6 +289,28 @@ namespace OpenFlow.Native {
     [DllImport("user32.dll", SetLastError = true)]
     static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+    [DllImport("user32.dll")]
+    static extern uint MapVirtualKey(uint code, uint mapType);
+
+    static INPUT Key(ushort vk, bool up) {
+      INPUT input = new INPUT();
+      input.type = INPUT_KEYBOARD;
+      input.u.ki.wVk = vk;
+      input.u.ki.wScan = (ushort)MapVirtualKey(vk, 0);
+      input.u.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0) | (vk == 0x2D ? 1u : 0u);
+      return input;
+    }
+
+    public static uint Paste(int mode) {
+      ushort modifier = (ushort)(mode == 1 ? 0xA0 : 0xA2);
+      ushort key = (ushort)(mode == 1 ? 0x2D : 0x56);
+      INPUT[] inputs = mode == 2
+        ? new INPUT[] { Key(modifier, false), Key(0xA0, false), Key(key, false),
+            Key(key, true), Key(0xA0, true), Key(modifier, true) }
+        : new INPUT[] { Key(modifier, false), Key(key, false), Key(key, true), Key(modifier, true) };
+      return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+    }
+
     public static uint Type(string text) {
       INPUT[] inputs = new INPUT[text.Length * 2];
       for (int i = 0; i < text.Length; i++) {
@@ -328,6 +329,11 @@ namespace OpenFlow.Native {
 }
 "@
   }
+
+}
+
+function Send-TextAsKeystrokes {
+  param([Parameter(Mandatory = $true)][string]$Value)
 
   # Chunked so a long transcription does not overflow the target's input queue.
   $chunkSize = 200
@@ -353,7 +359,7 @@ function Invoke-ClipboardAction {
   )
 
   $lastError = $null
-  for ($attempt = 0; $attempt -lt 6; $attempt++) {
+  for ($attempt = 0; $attempt -lt 4; $attempt++) {
     try {
       return & $Action
     } catch {
@@ -434,116 +440,155 @@ function Set-ClipboardTextForPaste {
   [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
 }
 
-$target = Get-ForegroundTarget
-$targetLabel = if ($target.Process) { "$($target.Process) [$($target.Class)]" } else { 'the active app' }
+function Invoke-TextInsertion {
+  param(
+    [string]$Text,
+    [ValidateSet('auto', 'ctrl-v', 'shift-insert', 'ctrl-shift-v', 'type')]
+    [string]$Method = 'auto'
+  )
+  if ([string]::IsNullOrEmpty($Text)) { return }
 
-# Windows silently discards injected input aimed at a window owned by a process
-# running at a higher integrity level. Detect that up front and say so, instead of
-# looking like the paste worked while nothing appears.
-if ($target.Inaccessible -and -not (Test-IsElevated)) {
-  try {
-    Invoke-ClipboardAction -Operation 'set-text' -Action {
-      Set-ClipboardTextForPaste -Value $Text
-    } | Out-Null
-  } catch {
-    # The clipboard hand-off is a convenience; the error below is the real result.
-  }
+  $target = Get-ForegroundTarget
+  $targetLabel = if ($target.Process) { "$($target.Process) [$($target.Class)]" } else { 'the active app' }
 
-  throw "$targetLabel runs with higher privileges, so Windows blocks OpenFlow from pasting into it. Run OpenFlow as administrator, or press Ctrl+V yourself (the text is on the clipboard)."
-}
-
-if ($Method -eq 'type') {
-  # Explicit clipboard-free mode: never touch the clipboard at all.
-  Wait-ForModifiersReleased | Out-Null
-  Clear-StuckModifiers
-  Start-Sleep -Milliseconds 20
-  Send-TextAsKeystrokes -Value $Text
-  [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
-  [Console]::Out.Flush()
-  exit 0
-}
-
-$pasteMethod = Resolve-PasteMethod -Target $target
-
-# Remember what the user had on the clipboard so it can be restored after the paste.
-$previousClipboard = Get-ClipboardSnapshot
-
-# Place the transcription on the clipboard and confirm it actually landed before we
-# send the keystroke. The temporary clipboard item is marked so Windows should not
-# add it to clipboard history or sync it through cloud clipboard.
-$clipboardReady = $false
-for ($attempt = 0; $attempt -lt 6; $attempt++) {
-  try {
-    Invoke-ClipboardAction -Operation 'set-text' -Action {
-      Set-ClipboardTextForPaste -Value $Text
-    } | Out-Null
-    Start-Sleep -Milliseconds 60
-
-    $current = Invoke-ClipboardAction -Operation 'verify' -Action {
-      if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-        [System.Windows.Forms.Clipboard]::GetText()
-      } else {
-        $null
-      }
+  # Windows silently discards injected input aimed at a window owned by a process
+  # running at a higher integrity level. Detect that up front and say so, instead of
+  # looking like the paste worked while nothing appears.
+  if ($target.Inaccessible -and -not (Test-IsElevated)) {
+    try {
+      Invoke-ClipboardAction -Operation 'set-text' -Action {
+        Set-ClipboardTextForPaste -Value $Text
+      } | Out-Null
+    } catch {
+      # The clipboard hand-off is a convenience; the error below is the real result.
     }
 
-    if ($current -eq $Text) {
-      $clipboardReady = $true
-      break
-    }
-  } catch {
-    Start-Sleep -Milliseconds (40 + ($attempt * 30))
+    throw "$targetLabel runs with higher privileges, so Windows blocks OpenFlow from pasting into it. Run OpenFlow as administrator, or press Ctrl+V yourself (the text is on the clipboard)."
   }
-}
 
-if (-not $clipboardReady) {
-  # Another app is holding the clipboard open. Typing the text is slower but does
-  # not need the clipboard at all, so the transcription still lands.
-  try {
+  if ($Method -eq 'type') {
+    # Explicit clipboard-free mode: never touch the clipboard at all.
     Wait-ForModifiersReleased | Out-Null
     Clear-StuckModifiers
     Start-Sleep -Milliseconds 20
     Send-TextAsKeystrokes -Value $Text
-    [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
-    [Console]::Out.Flush()
-    exit 0
-  } catch {
-    throw "Clipboard was not ready for pasting and typing the text failed: $($_.Exception.Message)"
+    return
+  }
+
+  $pasteMethod = Resolve-PasteMethod -Target $target
+
+  # Remember what the user had on the clipboard so it can be restored after the paste.
+  $previousClipboard = Get-ClipboardSnapshot
+
+  try {
+    # Place the transcription on the clipboard and confirm it actually landed before we
+    # send the keystroke. The temporary clipboard item is marked so Windows should not
+    # add it to clipboard history or sync it through cloud clipboard.
+    $clipboardReady = $false
+    for ($attempt = 0; $attempt -lt 2; $attempt++) {
+      try {
+        Invoke-ClipboardAction -Operation 'set-text' -Action {
+          Set-ClipboardTextForPaste -Value $Text
+        } | Out-Null
+
+        $current = Invoke-ClipboardAction -Operation 'verify' -Action {
+          if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+            [System.Windows.Forms.Clipboard]::GetText()
+          } else {
+            $null
+          }
+        }
+
+        if ($current -eq $Text) {
+          $clipboardReady = $true
+          break
+        }
+      } catch {
+        Start-Sleep -Milliseconds (40 + ($attempt * 30))
+      }
+    }
+
+    if (-not $clipboardReady) {
+      # Another app is holding the clipboard open. Typing the text is slower but does
+      # not need the clipboard at all, so the transcription still lands.
+      try {
+        Wait-ForModifiersReleased | Out-Null
+        Clear-StuckModifiers
+        Start-Sleep -Milliseconds 20
+        Send-TextAsKeystrokes -Value $Text
+        return
+      } catch {
+        throw "Clipboard was not ready for pasting and typing the text failed: $($_.Exception.Message)"
+      }
+    }
+
+    try {
+      # Let go of the hotkey modifiers before injecting, otherwise the target sees
+      # Ctrl+Win+V (or Ctrl+Alt+V) instead of a plain paste and ignores it.
+      Wait-ForModifiersReleased | Out-Null
+      Clear-StuckModifiers
+      Start-Sleep -Milliseconds 30
+
+      Send-PasteShortcut -PasteMethod $pasteMethod
+      # Give the target app time to read the clipboard before removing our temporary
+      # text. Chromium/Electron targets and remote sessions read it asynchronously.
+      Start-Sleep -Milliseconds ([Math]::Max(120, $RestoreDelayMs))
+    } finally {
+      # Put the user's previous clipboard contents back, but only while the clipboard
+      # still holds our temporary text — if the user copied something newer in the
+      # meantime, leave it alone.
+      try {
+        Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
+          if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
+            Restore-ClipboardSnapshot -Snapshot $previousClipboard
+          }
+        } | Out-Null
+      } catch {
+        try {
+          Invoke-ClipboardAction -Operation 'restore-retry' -Action {
+            if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
+              Restore-ClipboardSnapshot -Snapshot $previousClipboard
+            }
+          } | Out-Null
+        } catch {
+          # Best effort: clipboard restore failures should not break the paste operation.
+        }
+      }
+    }
+  } finally {
+    # Release native images even after clipboard fallback or rejected input.
+    if ($previousClipboard -and $previousClipboard.ContainsKey('Image')) {
+      $previousClipboard['Image'].Dispose()
+    }
   }
 }
 
-try {
-  # Let go of the hotkey modifiers before injecting, otherwise the target sees
-  # Ctrl+Win+V (or Ctrl+Alt+V) instead of a plain paste and ignores it.
-  Wait-ForModifiersReleased | Out-Null
-  Clear-StuckModifiers
-  Start-Sleep -Milliseconds 30
+# Warm up both interop types once, before announcing readiness.
+Initialize-InputType
 
-  Send-PasteShortcut -PasteMethod $pasteMethod
-  [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
+if ($Server) {
+  [Console]::Out.WriteLine('{"event":"ready"}')
   [Console]::Out.Flush()
-  # Give the target app time to read the clipboard before removing our temporary
-  # text. Chromium/Electron targets and remote sessions read it asynchronously.
-  Start-Sleep -Milliseconds ([Math]::Max(120, $RestoreDelayMs))
-} finally {
-  # Put the user's previous clipboard contents back, but only while the clipboard
-  # still holds our temporary text — if the user copied something newer in the
-  # meantime, leave it alone.
-  try {
-    Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
-      if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-        Restore-ClipboardSnapshot -Snapshot $previousClipboard
-      }
-    } | Out-Null
-  } catch {
+  while ($null -ne ($line = [Console]::In.ReadLine())) {
+    $request = $null
     try {
-      Invoke-ClipboardAction -Operation 'restore-retry' -Action {
-        if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-          Restore-ClipboardSnapshot -Snapshot $previousClipboard
-        }
-      } | Out-Null
+      $request = ConvertFrom-Json -InputObject $line
+      Invoke-TextInsertion -Text ([string]$request.text) -Method ([string]$request.method)
+      # Only release the JS queue after the clipboard has been restored. This
+      # prevents a previous paste from clearing the next request's payload.
+      $response = @{ id = $request.id }
     } catch {
-      # Best effort: clipboard restore failures should not break the paste operation.
+      $response = @{ id = $request.id; error = $_.Exception.Message }
     }
+    [Console]::Out.WriteLine(($response | ConvertTo-Json -Compress))
+    [Console]::Out.Flush()
   }
+} else {
+  try {
+    $text = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($EncodedText))
+  } catch {
+    throw 'Failed to decode UTF-8 text for sending.'
+  }
+  Invoke-TextInsertion -Text $text -Method $Method
+  [Console]::Out.WriteLine('__OPENFLOW_PASTE_OK__')
 }

@@ -132,16 +132,41 @@ async function testDeviceResetRebuildsActiveOutput() {
 async function testWatchdogCannotPermanentlyFreezeQueue() {
   resetFakeAudio();
   const failures = [];
+  // Advance the watchdog explicitly: a loaded Windows runner can overshoot a
+  // 15ms wall-clock timeout before the replacement sound gets its drain turn.
+  const timers = new Map();
+  let now = 0;
+  let nextId = 0;
+  function schedule(callback, delayMs) {
+    const id = ++nextId;
+    timers.set(id, { callback, at: now + delayMs });
+    return id;
+  }
+  async function advance(ms) {
+    const target = now + ms;
+    while (true) {
+      const next = [...timers.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (!next || next[1].at > target) break;
+      now = next[1].at;
+      timers.delete(next[0]);
+      next[1].callback();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    now = target;
+  }
   const controller = createFeedbackAudioController({
     sources: { start: 'start.mp3', close: 'close.mp3' },
     AudioConstructor: FakeAudio,
     watchdogMs: 15,
+    setTimeout: schedule,
+    clearTimeout: (id) => timers.delete(id),
     onPlaybackFailure: (failure) => failures.push(failure),
   });
 
   controller.queueSound('start');
   controller.queueSound('close');
-  await delay(45);
+  await advance(16);
 
   const startPlayers = FakeAudio.instances.filter((audio) => audio.source === 'start.mp3');
   assert.strictEqual(startPlayers.length >= 2, true, 'watchdog should rebuild a stalled sound');
@@ -152,7 +177,7 @@ async function testWatchdogCannotPermanentlyFreezeQueue() {
 
   const currentStart = startPlayers[startPlayers.length - 1];
   currentStart.emit('ended');
-  await settle();
+  await advance(0);
   const closePlayers = FakeAudio.instances.filter((audio) => audio.source === 'close.mp3');
   assert.strictEqual(
     closePlayers.some((audio) => audio.playCalls > 0),

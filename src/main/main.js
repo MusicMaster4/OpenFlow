@@ -20,11 +20,12 @@ const {
 const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
 const { requestTranscription, isRetryableCloudError, compatibilityFallback } = require('./cloud-transcription');
+const { createWindowsTextInserter } = require('./windows-text-inserter');
 
 const DEFAULT_SHORTCUT = process.platform === 'darwin' ? 'option+space' : 'ctrl+windows';
 const DEFAULT_PASTE_LAST_SHORTCUT =
   process.platform === 'darwin' ? 'command+option+v' : 'ctrl+alt+v';
-const PASTE_SHORTCUT_SETTLE_DELAY_MS = process.platform === 'darwin' ? 90 : 70;
+const PASTE_SHORTCUT_SETTLE_DELAY_MS = process.platform === 'darwin' ? 90 : 0;
 const DEFAULT_LANGUAGES = ['en'];
 const DEFAULT_INTERFACE_LANGUAGE = 'en';
 const DEFAULT_SHOW_OVERLAY_BAR = true;
@@ -45,10 +46,6 @@ const LOCAL_HISTORY_LIMIT = 100;
 const PERSISTENCE_VERSION = 6;
 const SERVICE_SHUTDOWN_TIMEOUT_MS = 2500;
 const HANDS_FREE_SOUND_DELAY_MS = 250;
-const WINDOWS_PASTE_READY_SIGNAL = '__OPENFLOW_PASTE_OK__';
-// Generous enough to cover PowerShell start-up, waiting for the user to let go of
-// the hotkey modifiers, clipboard retries and the post-paste clipboard dwell.
-const WINDOWS_PASTE_TIMEOUT_MS = 8000;
 // Overrides the paste keystroke the script picks from the foreground window.
 // One of: auto | ctrl-v | shift-insert | ctrl-shift-v | type.
 const WINDOWS_PASTE_METHODS = new Set(['auto', 'ctrl-v', 'shift-insert', 'ctrl-shift-v', 'type']);
@@ -2832,14 +2829,14 @@ function runTextInsertion(text) {
       });
 
       osascript.on('close', (code) => {
-        setTimeout(() => {
-          restorePreviousClipboard(pasteText, previousClipboard);
-        }, 120);
-
         if (code === 0) {
-          resolve();
+          setTimeout(() => {
+            restorePreviousClipboard(pasteText, previousClipboard);
+            resolve();
+          }, 120);
           return;
         }
+        restorePreviousClipboard(pasteText, previousClipboard);
 
         if (/not authorized|not permitted|assistive access|system events got an error/i.test(stderr)) {
           reject(
@@ -2855,98 +2852,19 @@ function runTextInsertion(text) {
       return;
     }
 
-    const scriptPath = path.join(getRuntimeBasePath(), 'scripts', 'send_text.ps1');
-    const encodedText = Buffer.from(text, 'utf8').toString('base64');
-    const powershell = spawn(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-STA',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        scriptPath,
-        '-EncodedText',
-        encodedText,
-        '-Method',
-        getWindowsPasteMethod(),
-      ],
-      { windowsHide: true },
-    );
-
-    let stderr = '';
-    let stdout = '';
-    let settled = false;
-    let pasteTimeout = null;
-
-    const cleanup = () => {
-      if (pasteTimeout) {
-        clearTimeout(pasteTimeout);
-        pasteTimeout = null;
-      }
-    };
-
-    const resolveOnce = () => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      resolve();
-    };
-
-    const rejectOnce = (error) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-
-    if (powershell.stdout) {
-      powershell.stdout.setEncoding('utf8');
-      powershell.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        if (stdout.includes(WINDOWS_PASTE_READY_SIGNAL)) {
-          resolveOnce();
-        }
-      });
-    }
-
-    powershell.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    powershell.on('error', (error) => {
-      rejectOnce(error);
-    });
-
-    powershell.on('close', (code) => {
-      if (settled) {
-        return;
-      }
-
-      if (code === 0) {
-        resolveOnce();
-        return;
-      }
-
-      rejectOnce(new Error(stderr || `PowerShell exited with code ${code}`));
-    });
-
-    pasteTimeout = setTimeout(() => {
-      try {
-        powershell.kill();
-      } catch (_error) {
-        // Best effort.
-      }
-
-        rejectOnce(new Error('Timed out while pasting text into the active app.'));
-    }, WINDOWS_PASTE_TIMEOUT_MS);
+    getWindowsTextInserter().insert(String(text || ''), getWindowsPasteMethod()).then(resolve, reject);
   });
+}
+
+let windowsTextInserter = null;
+
+function getWindowsTextInserter() {
+  if (!windowsTextInserter) {
+    windowsTextInserter = createWindowsTextInserter({
+      scriptPath: path.join(getRuntimeBasePath(), 'scripts', 'send_text.ps1'),
+    });
+  }
+  return windowsTextInserter;
 }
 
 function getSystemAudioControllerScriptPath() {
@@ -3202,41 +3120,27 @@ function requestPasteLatestTranscription(source = 'unknown') {
   void pasteLatestTranscription(source);
 }
 
+let pasteLastInFlight = false;
+
 async function pasteLatestTranscription() {
-  const nextPhase = state.listening ? 'listening' : 'idle';
+  // Replaying saved text is independent of the recorder/transcription lifecycle.
+  // Ignore key-repeat while this request is queued or being pasted.
+  if (pasteLastInFlight) return;
+  const latestText = getLatestSavedTranscriptionText() || getLatestPersistedTranscriptionText();
+  if (!latestText) {
+    setState({ error: 'Nenhuma transcricao salva disponivel para colar.' });
+    return;
+  }
 
-  setOverlayAudioLevel(0);
-  setState({
-    pendingPaste: true,
-    phase: 'transcribing',
-    error: '',
-  });
-
+  pasteLastInFlight = true;
+  setState({ error: '' });
   try {
-    await delay(PASTE_SHORTCUT_SETTLE_DELAY_MS);
-    const latestText = getLatestSavedTranscriptionText() || getLatestPersistedTranscriptionText();
-    if (!latestText) {
-      setState({
-        error: 'Nenhuma transcricao salva disponivel para colar.',
-      });
-      return;
-    }
-
+    if (PASTE_SHORTCUT_SETTLE_DELAY_MS) await delay(PASTE_SHORTCUT_SETTLE_DELAY_MS);
     await insertTextIntoFocusedApp(normalizeTextForPaste(latestText));
-    if (state.error === 'Nenhuma transcricao salva disponivel para colar.') {
-      setState({
-        error: '',
-      });
-    }
   } catch (error) {
-    setState({
-      error: `Failed to paste the last transcription: ${error.message}`,
-    });
+    setState({ error: `Failed to paste the last transcription: ${error.message}` });
   } finally {
-    setState({
-      pendingPaste: false,
-      phase: nextPhase,
-    });
+    pasteLastInFlight = false;
   }
 }
 
@@ -5709,6 +5613,11 @@ app.whenReady().then(() => {
   createOverlayWindow();
   startOverlayVisibilityWatchdog();
   startCloudRetryPruneWatch();
+  if (process.platform === 'win32') {
+    // Compile native helpers before the first dictation/paste shortcut. A failed
+    // warm-up is retried on demand, without interrupting recording.
+    void getWindowsTextInserter().warmup().catch(() => {});
+  }
   bootAudioController();
   bootDictationService();
   bootHotkeyListener();
@@ -5737,6 +5646,7 @@ app.on('before-quit', () => {
 });
 
 app.on('will-quit', () => {
+  windowsTextInserter?.dispose();
   unregisterMainShortcut();
   unregisterPasteLastShortcut();
   shutdownChildren();
