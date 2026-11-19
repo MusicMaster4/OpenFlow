@@ -31,6 +31,21 @@ try {
     Write-Output "PASS: $($text.Length) characters pasted intact in $($watch.ElapsedMilliseconds) ms, clipboard restored."
   }
 
+  # Simulate the clipboard staying unavailable through every preparation attempt.
+  # No shortcut or character input is safe until the complete text is ready.
+  & {
+    function Set-ClipboardTextForPaste { throw 'temporarily locked' }
+    function Send-TextAsKeystrokes { throw 'unexpected character input' }
+    function Send-PasteShortcut { throw 'unexpected paste shortcut' }
+    try {
+      Invoke-TextInsertion -Text 'Blocked paste.'
+      throw 'Expected clipboard error.'
+    } catch {
+      if ($_.Exception.Message -notmatch 'temporarily locked') { throw }
+    }
+  }
+  Write-Output 'PASS: a locked clipboard reports failure without injecting any input.'
+
   # A copy made while the target handles paste must survive cleanup.
   function Send-PasteShortcut {
     param([string]$PasteMethod)

@@ -281,6 +281,68 @@ namespace OpenFlow.Native {
     public INPUTUNION u;
   }
 
+  public static class PasteClipboard {
+    [DllImport("user32.dll", SetLastError = true)] static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")] static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] static extern bool EmptyClipboard();
+    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetClipboardData(uint format, IntPtr memory);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint RegisterClipboardFormat(string name);
+    [DllImport("user32.dll")] public static extern IntPtr GetClipboardOwner();
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GlobalLock(IntPtr memory);
+    [DllImport("kernel32.dll")] static extern bool GlobalUnlock(IntPtr memory);
+    [DllImport("kernel32.dll")] static extern IntPtr GlobalFree(IntPtr memory);
+
+    [DllImport("user32.dll")] static extern bool IsClipboardFormatAvailable(uint format);
+    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr GetClipboardData(uint format);
+
+    public static string ReadText() {
+      if (!OpenClipboard(IntPtr.Zero)) throw new System.ComponentModel.Win32Exception();
+      try {
+        if (!IsClipboardFormatAvailable(13)) return null;
+        IntPtr memory = GetClipboardData(13);
+        if (memory == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        IntPtr address = GlobalLock(memory);
+        if (address == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try { return Marshal.PtrToStringUni(address); }
+        finally { GlobalUnlock(memory); }
+      } finally { CloseClipboard(); }
+    }
+
+    static void SetBytes(uint format, byte[] bytes) {
+      IntPtr memory = GlobalAlloc(2 /* GMEM_MOVEABLE */, (UIntPtr)bytes.Length);
+      if (memory == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+      try {
+        IntPtr address = GlobalLock(memory);
+        if (address == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try { Marshal.Copy(bytes, 0, address, bytes.Length); }
+        finally { GlobalUnlock(memory); }
+        if (SetClipboardData(format, memory) == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        memory = IntPtr.Zero; // Windows owns the handle after a successful transfer.
+      } finally {
+        if (memory != IntPtr.Zero) GlobalFree(memory);
+      }
+    }
+
+    static void SetFlag(string name, uint value) {
+      uint format = RegisterClipboardFormat(name);
+      if (format == 0) throw new System.ComponentModel.Win32Exception();
+      SetBytes(format, BitConverter.GetBytes(value));
+    }
+
+    public static void Write(IntPtr owner, string text) {
+      if (!OpenClipboard(owner)) throw new System.ComponentModel.Win32Exception();
+      try {
+        if (!EmptyClipboard()) throw new System.ComponentModel.Win32Exception();
+        SetFlag("ExcludeClipboardContentFromMonitorProcessing", 1);
+        SetFlag("CanIncludeInClipboardHistory", 0);
+        SetFlag("CanUploadToCloudClipboard", 0);
+        SetBytes(13 /* CF_UNICODETEXT */, System.Text.Encoding.Unicode.GetBytes(text + "\0"));
+      } finally { CloseClipboard(); }
+    }
+  }
+
   public static class Typist {
     const uint INPUT_KEYBOARD = 1;
     const uint KEYEVENTF_KEYUP = 0x0002;
@@ -378,9 +440,8 @@ function Get-ClipboardSnapshot {
   try {
     return Invoke-ClipboardAction -Operation 'snapshot' -Action {
       $captured = @{}
-      if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-        $captured['Text'] = [System.Windows.Forms.Clipboard]::GetText([System.Windows.Forms.TextDataFormat]::UnicodeText)
-      }
+      $savedText = [OpenFlow.Native.PasteClipboard]::ReadText()
+      if ($null -ne $savedText) { $captured['Text'] = $savedText }
       if ([System.Windows.Forms.Clipboard]::ContainsFileDropList()) {
         $captured['Files'] = [System.Windows.Forms.Clipboard]::GetFileDropList()
       }
@@ -399,6 +460,11 @@ function Restore-ClipboardSnapshot {
 
   if (-not $Snapshot -or $Snapshot.Count -eq 0) {
     [System.Windows.Forms.Clipboard]::Clear()
+    return
+  }
+
+  if ($Snapshot.Count -eq 1 -and $Snapshot.ContainsKey('Text') -and $Snapshot['Text']) {
+    Set-ClipboardTextForPaste -Value $Snapshot['Text']
     return
   }
 
@@ -428,16 +494,12 @@ function Set-ClipboardTextForPaste {
     [string]$Value
   )
 
-  $dataObject = New-Object System.Windows.Forms.DataObject
-  $dataObject.SetText($Value, [System.Windows.Forms.TextDataFormat]::UnicodeText)
-  # Prevent this temporary paste payload from being captured by Windows clipboard
-  # history or cloud clipboard. It must be written in the same clipboard object as
-  # the text for Windows to treat the whole item as excluded.
-  $disabledFlag = [System.BitConverter]::GetBytes([uint32]0)
-  $dataObject.SetData('ExcludeClipboardContentFromMonitorProcessing', $false, [byte[]](1))
-  $dataObject.SetData('CanIncludeInClipboardHistory', $false, $disabledFlag)
-  $dataObject.SetData('CanUploadToCloudClipboard', $false, $disabledFlag)
-  [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+  # A real window handle is required to own the clipboard after EmptyClipboard.
+  # Reuse this invisible control on the worker's STA thread.
+  if (-not $script:pasteClipboardOwner) {
+    $script:pasteClipboardOwner = New-Object System.Windows.Forms.Control
+  }
+  [OpenFlow.Native.PasteClipboard]::Write($script:pasteClipboardOwner.Handle, $Value)
 }
 
 function Invoke-TextInsertion {
@@ -477,86 +539,38 @@ function Invoke-TextInsertion {
 
   $pasteMethod = Resolve-PasteMethod -Target $target
 
-  # Remember what the user had on the clipboard so it can be restored after the paste.
+  Wait-ForModifiersReleased | Out-Null
+  Clear-StuckModifiers
+
   $previousClipboard = Get-ClipboardSnapshot
-
   try {
-    # Place the transcription on the clipboard and confirm it actually landed before we
-    # send the keystroke. The temporary clipboard item is marked so Windows should not
-    # add it to clipboard history or sync it through cloud clipboard.
-    $clipboardReady = $false
-    for ($attempt = 0; $attempt -lt 2; $attempt++) {
-      try {
-        Invoke-ClipboardAction -Operation 'set-text' -Action {
-          Set-ClipboardTextForPaste -Value $Text
-        } | Out-Null
-
-        $current = Invoke-ClipboardAction -Operation 'verify' -Action {
-          if ([System.Windows.Forms.Clipboard]::ContainsText()) {
-            [System.Windows.Forms.Clipboard]::GetText()
-          } else {
-            $null
-          }
-        }
-
-        if ($current -eq $Text) {
-          $clipboardReady = $true
-          break
-        }
-      } catch {
-        Start-Sleep -Milliseconds (40 + ($attempt * 30))
-      }
+    # Publish immediately rendered Unicode and verify via Win32 before sending
+    # the shortcut. Retry only preparation: repeating a shortcut can paste twice.
+    Invoke-ClipboardAction -Operation 'prepare paste' -Action {
+      Set-ClipboardTextForPaste -Value $Text
+    }
+    # Clipboard listeners briefly open new items after WM_CLIPBOARDUPDATE.
+    Start-Sleep -Milliseconds 30
+    $prepared = Invoke-ClipboardAction -Operation 'verify paste' -Action {
+      [OpenFlow.Native.PasteClipboard]::ReadText()
+    }
+    if (-not [string]::Equals($prepared, $Text, [StringComparison]::Ordinal)) {
+      throw 'Clipboard text changed before paste. Please retry.'
     }
 
-    if (-not $clipboardReady) {
-      # Another app is holding the clipboard open. Typing the text is slower but does
-      # not need the clipboard at all, so the transcription still lands.
-      try {
-        Wait-ForModifiersReleased | Out-Null
-        Clear-StuckModifiers
-        Start-Sleep -Milliseconds 20
-        Send-TextAsKeystrokes -Value $Text
-        return
-      } catch {
-        throw "Clipboard was not ready for pasting and typing the text failed: $($_.Exception.Message)"
-      }
-    }
-
-    try {
-      # Let go of the hotkey modifiers before injecting, otherwise the target sees
-      # Ctrl+Win+V (or Ctrl+Alt+V) instead of a plain paste and ignores it.
-      Wait-ForModifiersReleased | Out-Null
-      Clear-StuckModifiers
-      Start-Sleep -Milliseconds 30
-
-      Send-PasteShortcut -PasteMethod $pasteMethod
-      # Give the target app time to read the clipboard before removing our temporary
-      # text. Chromium/Electron targets and remote sessions read it asynchronously.
-      Start-Sleep -Milliseconds ([Math]::Max(120, $RestoreDelayMs))
-    } finally {
-      # Put the user's previous clipboard contents back, but only while the clipboard
-      # still holds our temporary text — if the user copied something newer in the
-      # meantime, leave it alone.
-      try {
-        Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
-          if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-            Restore-ClipboardSnapshot -Snapshot $previousClipboard
-          }
-        } | Out-Null
-      } catch {
-        try {
-          Invoke-ClipboardAction -Operation 'restore-retry' -Action {
-            if ([System.Windows.Forms.Clipboard]::ContainsText() -and [System.Windows.Forms.Clipboard]::GetText() -eq $Text) {
-              Restore-ClipboardSnapshot -Snapshot $previousClipboard
-            }
-          } | Out-Null
-        } catch {
-          # Best effort: clipboard restore failures should not break the paste operation.
-        }
-      }
-    }
+    Send-PasteShortcut -PasteMethod $pasteMethod
+    Start-Sleep -Milliseconds ([Math]::Max(120, $RestoreDelayMs))
   } finally {
-    # Release native images even after clipboard fallback or rejected input.
+    try {
+      Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
+        if ($script:pasteClipboardOwner -and
+            [OpenFlow.Native.PasteClipboard]::GetClipboardOwner() -eq $script:pasteClipboardOwner.Handle) {
+          Restore-ClipboardSnapshot -Snapshot $previousClipboard
+        }
+      } | Out-Null
+    } catch {
+      # Clipboard restoration is best effort after dispatch.
+    }
     if ($previousClipboard -and $previousClipboard.ContainsKey('Image')) {
       $previousClipboard['Image'].Dispose()
     }
