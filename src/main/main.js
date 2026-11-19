@@ -1179,6 +1179,7 @@ const state = {
   dictionaryEntries: defaults.dictionaryEntries,
   overlayPosition: defaults.overlayPosition,
   pendingPaste: false,
+  pastingLast: false,
   audioLevel: 0,
 };
 
@@ -3133,7 +3134,7 @@ async function pasteLatestTranscription() {
   }
 
   pasteLastInFlight = true;
-  setState({ error: '' });
+  setState({ pastingLast: true, error: '' });
   try {
     if (PASTE_SHORTCUT_SETTLE_DELAY_MS) await delay(PASTE_SHORTCUT_SETTLE_DELAY_MS);
     await insertTextIntoFocusedApp(normalizeTextForPaste(latestText));
@@ -3141,6 +3142,7 @@ async function pasteLatestTranscription() {
     setState({ error: `Failed to paste the last transcription: ${error.message}` });
   } finally {
     pasteLastInFlight = false;
+    setState({ pastingLast: false });
   }
 }
 

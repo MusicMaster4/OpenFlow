@@ -20,6 +20,7 @@ let targetAudioLevel = 0;
 let lastOverlayMode = 'idle';
 let currentOverlayState = {
   phase: 'idle',
+  pastingLast: false,
   captureMode: null,
   captureSource: null,
   audioLevel: 0,
@@ -99,6 +100,8 @@ let targetShape = defaultShape.slice();
 let currentShape = defaultShape.slice();
 
 function getOverlayMode(state) {
+  if (state.pastingLast) return 'loading';
+
   switch (state.phase) {
     case 'listening':
       return 'recording';
@@ -225,6 +228,7 @@ function renderOverlay(state) {
 
   currentOverlayState = {
     phase: state.phase,
+    pastingLast: Boolean(state.pastingLast),
     captureMode: state.captureMode ?? null,
     captureSource: state.captureSource ?? null,
     audioLevel: state.audioLevel ?? targetAudioLevel,

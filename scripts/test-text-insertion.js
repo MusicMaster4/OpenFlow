@@ -104,7 +104,7 @@ class FakeChild extends EventEmitter {
   const end = source.indexOf('\nfunction ', start);
   let finish;
   let inserts = 0;
-  const state = { phase: 'transcribing', listening: false, pendingPaste: true, dictationSessionId: 42 };
+  const state = { phase: 'transcribing', listening: false, pendingPaste: true, pastingLast: false, dictationSessionId: 42 };
   const context = { state, PASTE_SHORTCUT_SETTLE_DELAY_MS: 0,
     setState: (patch) => Object.assign(state, patch),
     getLatestSavedTranscriptionText: () => 'cached transcription',
@@ -122,20 +122,47 @@ class FakeChild extends EventEmitter {
   await context.pasteLatestTranscription();
   assert.equal(inserts, 1, 'ignore repeated shortcut events while a paste is pending');
   assert.equal(state.phase, 'transcribing');
+  assert.equal(state.pastingLast, true, 'show loading while the paste is pending');
   state.phase = 'listening';
   state.listening = true;
   state.dictationSessionId = 43;
   finish();
   await replay;
   assert.deepEqual(state, { phase: 'listening', listening: true, pendingPaste: true,
-    dictationSessionId: 43, error: '' });
+    dictationSessionId: 43, pastingLast: false, error: '' });
   context.insertTextIntoFocusedApp = async () => { throw new Error('blocked input'); };
   await context.pasteLatestTranscription();
   assert.match(state.error, /blocked input/);
+  assert.equal(state.pastingLast, false, 'clear loading after a failed paste');
   assert.equal(state.phase, 'listening');
   context.getLatestSavedTranscriptionText = () => '';
   context.getLatestPersistedTranscriptionText = () => '';
   await context.pasteLatestTranscription();
   assert.match(state.error, /Nenhuma transcricao/);
-  console.log('PASS: long UTF-8 transport, warm reuse, serialization, errors, timeout/crash recovery, shutdown and paste-last state isolation.');
+  assert.equal(state.pastingLast, false, 'no loading when there is no saved text');
+  const overlaySource = fs.readFileSync(require.resolve('../src/renderer/overlay'), 'utf8');
+  const overlayContext = {
+    document: {
+      getElementById: () => ({
+        querySelectorAll: () => Array.from({ length: 5 }, () => ({ style: {} })),
+        dataset: {}, classList: { toggle() {} }, setAttribute() {},
+      }),
+      documentElement: { style: { setProperty() {} } },
+    },
+    window: { createFeedbackAudioController: () => ({}), requestAnimationFrame: () => 1 },
+  };
+  vm.createContext(overlayContext);
+  vm.runInContext(overlaySource.replace(/bootstrap\(\);\s*$/, ''), overlayContext);
+  for (const phase of ['idle', 'listening', 'transcribing']) {
+    overlayContext.renderOverlay({ phase, pastingLast: true });
+    assert.equal(vm.runInContext('lastOverlayMode', overlayContext), 'loading');
+    // Ready/too-short timers render the cached state instead of a fresh IPC snapshot.
+    vm.runInContext('renderOverlay(currentOverlayState)', overlayContext);
+    assert.equal(vm.runInContext('lastOverlayMode', overlayContext), 'loading');
+  }
+  overlayContext.renderOverlay({ phase: 'idle', pastingLast: false });
+  assert.equal(vm.runInContext('lastOverlayMode', overlayContext), 'idle');
+  overlayContext.renderOverlay({ phase: 'listening', pastingLast: false });
+  assert.equal(vm.runInContext('lastOverlayMode', overlayContext), 'recording');
+  console.log('PASS: long UTF-8 transport, warm reuse, serialization, errors, timeout/crash recovery, shutdown, paste-last loading feedback and state isolation.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
