@@ -9,10 +9,13 @@ param(
   [ValidateSet('auto', 'ctrl-v', 'shift-insert', 'ctrl-shift-v', 'type')]
   [string]$Method = 'auto',
 
-  # How long to leave the transcription on the clipboard before restoring the
-  # user's previous content. Slow apps (Electron, remote sessions) read the
-  # clipboard asynchronously and need more than a few dozen milliseconds.
-  [int]$RestoreDelayMs = 400
+  # Minimum time (from the shortcut) before restoring the user's previous
+  # clipboard when the process that read the dictation is not the target app.
+  [int]$RestoreDelayMs = 2000,
+
+  # How long to wait for the target app to actually read the dictation from the
+  # clipboard. Until it does, the previous clipboard is never put back.
+  [int]$PasteConsumeTimeoutMs = 3000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -239,6 +242,7 @@ function Initialize-InputType {
   if (-not ([System.Management.Automation.PSTypeName]'OpenFlow.Native.Typist').Type) {
     Add-Type -TypeDefinition @"
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace OpenFlow.Native {
@@ -310,7 +314,7 @@ namespace OpenFlow.Native {
       } finally { CloseClipboard(); }
     }
 
-    static void SetBytes(uint format, byte[] bytes) {
+    internal static void SetBytes(uint format, byte[] bytes) {
       IntPtr memory = GlobalAlloc(2 /* GMEM_MOVEABLE */, (UIntPtr)bytes.Length);
       if (memory == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
       try {
@@ -331,15 +335,153 @@ namespace OpenFlow.Native {
       SetBytes(format, BitConverter.GetBytes(value));
     }
 
+    internal static void SetFlags() {
+      SetFlag("ExcludeClipboardContentFromMonitorProcessing", 1);
+      SetFlag("CanIncludeInClipboardHistory", 0);
+      SetFlag("CanUploadToCloudClipboard", 0);
+    }
+
     public static void Write(IntPtr owner, string text) {
       if (!OpenClipboard(owner)) throw new System.ComponentModel.Win32Exception();
       try {
         if (!EmptyClipboard()) throw new System.ComponentModel.Win32Exception();
-        SetFlag("ExcludeClipboardContentFromMonitorProcessing", 1);
-        SetFlag("CanIncludeInClipboardHistory", 0);
-        SetFlag("CanUploadToCloudClipboard", 0);
+        SetFlags();
         SetBytes(13 /* CF_UNICODETEXT */, System.Text.Encoding.Unicode.GetBytes(text + "\0"));
       } finally { CloseClipboard(); }
+    }
+  }
+
+  // Owns the dictation clipboard item with delayed rendering, so Windows asks
+  // this worker for the text (WM_RENDERFORMAT) at the moment an app reads it.
+  // Restoring the previous clipboard on a fixed timer let busy targets read the
+  // restored content instead of the dictation. Clipboard monitors (WSLg/RDP
+  // msrdc, the clipboard history service) read every new item regardless of the
+  // exclusion flags; reads before the shortcut are declined so the first render
+  // after it normally comes from the paste target itself.
+  public sealed class PasteOwner : System.Windows.Forms.NativeWindow {
+    const int WM_RENDERFORMAT = 0x0305;
+    const int WM_RENDERALLFORMATS = 0x0306;
+    const int WM_DESTROYCLIPBOARD = 0x0307;
+    const uint CF_UNICODETEXT = 13;
+
+    [DllImport("user32.dll", SetLastError = true)] static extern bool OpenClipboard(IntPtr owner);
+    [DllImport("user32.dll")] static extern bool CloseClipboard();
+    [DllImport("user32.dll", SetLastError = true)] static extern bool EmptyClipboard();
+    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetClipboardData(uint format, IntPtr memory);
+    [DllImport("user32.dll")] static extern IntPtr GetClipboardOwner();
+    [DllImport("user32.dll")] static extern IntPtr GetOpenClipboardWindow();
+    [DllImport("user32.dll")] static extern bool IsClipboardFormatAvailable(uint format);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    string pending;
+    volatile bool rendered;
+    bool armed;
+    uint targetProcessId;
+    readonly System.Collections.Generic.HashSet<uint> monitors = new System.Collections.Generic.HashSet<uint>();
+
+    public PasteOwner() { CreateHandle(new System.Windows.Forms.CreateParams()); }
+
+    public bool Rendered { get { return rendered; } }
+
+    // The render was requested by the process that owns the paste target window.
+    public bool RenderedForTarget { get; private set; }
+
+    public bool OwnsClipboard { get { return GetClipboardOwner() == Handle; } }
+
+    public void Publish(string text, uint targetPid) {
+      if (!OpenClipboard(Handle)) throw new System.ComponentModel.Win32Exception();
+      try {
+        if (!EmptyClipboard()) throw new System.ComponentModel.Win32Exception();
+        PasteClipboard.SetFlags();
+        pending = text;
+        rendered = false;
+        armed = false;
+        RenderedForTarget = false;
+        targetProcessId = targetPid;
+        monitors.Clear();
+        SetClipboardData(CF_UNICODETEXT, IntPtr.Zero); // NULL handle = render on demand
+        if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+          pending = null;
+          throw new InvalidOperationException("Windows did not accept the clipboard text.");
+        }
+      } finally { CloseClipboard(); }
+    }
+
+    // Call right before the paste shortcut: from now on reads are served.
+    public void Arm() { armed = true; }
+
+    // True while the clipboard still offers exactly the text we published.
+    public bool IsPublished() {
+      return pending != null && !rendered && OwnsClipboard && IsClipboardFormatAvailable(CF_UNICODETEXT);
+    }
+
+    // Turn a still-unread delayed item into real data so nobody blocks on this
+    // worker once it stops pumping messages.
+    public void Materialize() {
+      if (pending == null || rendered) return;
+      if (!OpenClipboard(Handle)) throw new System.ComponentModel.Win32Exception();
+      try {
+        if (OwnsClipboard && !rendered) Render();
+      } finally { CloseClipboard(); }
+    }
+
+    void Render() {
+      PasteClipboard.SetBytes(CF_UNICODETEXT, System.Text.Encoding.Unicode.GetBytes(pending + "\0"));
+      rendered = true;
+    }
+
+    static uint ReaderProcessId() {
+      uint processId = 0;
+      IntPtr window = GetOpenClipboardWindow();
+      if (window != IntPtr.Zero) GetWindowThreadProcessId(window, out processId);
+      return processId;
+    }
+
+    public void Pump(int milliseconds) {
+      Stopwatch watch = Stopwatch.StartNew();
+      do {
+        System.Windows.Forms.Application.DoEvents();
+        System.Threading.Thread.Sleep(2);
+      } while (watch.ElapsedMilliseconds < milliseconds);
+    }
+
+    public bool WaitForRender(int timeoutMs) {
+      Stopwatch watch = Stopwatch.StartNew();
+      while (!rendered && pending != null && watch.ElapsedMilliseconds < timeoutMs) {
+        System.Windows.Forms.Application.DoEvents();
+        System.Threading.Thread.Sleep(2);
+      }
+      return rendered;
+    }
+
+    protected override void WndProc(ref System.Windows.Forms.Message m) {
+      if (m.Msg == WM_RENDERFORMAT) {
+        // The reader already holds the clipboard open: do not open it here.
+        if ((uint)m.WParam.ToInt64() == CF_UNICODETEXT && pending != null && !rendered) {
+          uint reader = ReaderProcessId();
+          bool isTarget = reader != 0 && reader == targetProcessId;
+          if (!armed) {
+            // Nothing can be pasting yet: this is a monitor. Decline; the item
+            // stays pending and the monitor retries later.
+            if (reader != 0) monitors.Add(reader);
+          } else if (isTarget || !monitors.Contains(reader)) {
+            Render();
+            RenderedForTarget = isTarget;
+          }
+        }
+        m.Result = IntPtr.Zero;
+        return;
+      }
+      if (m.Msg == WM_RENDERALLFORMATS) {
+        try { Materialize(); } catch { }
+        m.Result = IntPtr.Zero;
+        return;
+      }
+      if (m.Msg == WM_DESTROYCLIPBOARD) {
+        // Someone replaced the clipboard; our item is gone.
+        pending = null;
+      }
+      base.WndProc(ref m);
     }
   }
 
@@ -389,7 +531,7 @@ namespace OpenFlow.Native {
     }
   }
 }
-"@
+"@ -ReferencedAssemblies ([System.Windows.Forms.Form].Assembly.Location)
   }
 
 }
@@ -421,7 +563,7 @@ function Invoke-ClipboardAction {
   )
 
   $lastError = $null
-  for ($attempt = 0; $attempt -lt 4; $attempt++) {
+  for ($attempt = 0; $attempt -lt 6; $attempt++) {
     try {
       return & $Action
     } catch {
@@ -502,6 +644,11 @@ function Set-ClipboardTextForPaste {
   [OpenFlow.Native.PasteClipboard]::Write($script:pasteClipboardOwner.Handle, $Value)
 }
 
+function Publish-ClipboardTextForPaste {
+  param($Owner, [string]$Value, [int]$TargetProcessId)
+  $Owner.Publish($Value, [uint32][Math]::Max(0, $TargetProcessId))
+}
+
 function Invoke-TextInsertion {
   param(
     [string]$Text,
@@ -543,33 +690,59 @@ function Invoke-TextInsertion {
   Clear-StuckModifiers
 
   $previousClipboard = Get-ClipboardSnapshot
+  if (-not $script:pasteOwner) {
+    $script:pasteOwner = New-Object OpenFlow.Native.PasteOwner
+  }
+  $owner = $script:pasteOwner
+  $dispatched = $false
+  $consumed = $false
   try {
-    # Publish immediately rendered Unicode and verify via Win32 before sending
-    # the shortcut. Retry only preparation: repeating a shortcut can paste twice.
+    # Publish the text with delayed rendering so we learn exactly when the target
+    # reads it. Retry only preparation: repeating a shortcut can paste twice.
     Invoke-ClipboardAction -Operation 'prepare paste' -Action {
-      Set-ClipboardTextForPaste -Value $Text
+      Publish-ClipboardTextForPaste -Owner $owner -Value $Text -TargetProcessId $target.ProcessId
     }
-    # Clipboard listeners briefly open new items after WM_CLIPBOARDUPDATE.
-    Start-Sleep -Milliseconds 30
-    $prepared = Invoke-ClipboardAction -Operation 'verify paste' -Action {
-      [OpenFlow.Native.PasteClipboard]::ReadText()
-    }
-    if (-not [string]::Equals($prepared, $Text, [StringComparison]::Ordinal)) {
+    # Let clipboard monitors react to WM_CLIPBOARDUPDATE (their reads are declined).
+    $owner.Pump(40)
+    if (-not $owner.IsPublished()) {
       throw 'Clipboard text changed before paste. Please retry.'
     }
 
+    $owner.Arm()
+    $dispatchWatch = [System.Diagnostics.Stopwatch]::StartNew()
     Send-PasteShortcut -PasteMethod $pasteMethod
-    Start-Sleep -Milliseconds ([Math]::Max(120, $RestoreDelayMs))
+    $dispatched = $true
+
+    # Never restore before the target has read the dictation: a busy target that
+    # reads late would otherwise paste the user's previous clipboard instead.
+    $consumed = $owner.WaitForRender($PasteConsumeTimeoutMs)
+    if ($consumed) {
+      # The reader holds the clipboard open while copying; give it a moment. When
+      # the reader could not be identified as the target app, keep the text for
+      # a longer safety window in case the target has yet to read it.
+      $hold = 150
+      if (-not $owner.RenderedForTarget) {
+        $hold = [Math]::Max($hold, $RestoreDelayMs - [int]$dispatchWatch.ElapsedMilliseconds)
+      }
+      $owner.Pump($hold)
+    }
   } finally {
     try {
-      Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
-        if ($script:pasteClipboardOwner -and
-            [OpenFlow.Native.PasteClipboard]::GetClipboardOwner() -eq $script:pasteClipboardOwner.Handle) {
-          Restore-ClipboardSnapshot -Snapshot $previousClipboard
-        }
-      } | Out-Null
+      if ($dispatched -and -not $consumed) {
+        # The target never read the dictation. Keep it on the clipboard as real
+        # data so nothing stale gets pasted and the user can paste it manually.
+        Invoke-ClipboardAction -Operation 'keep-dictation' -Action { $owner.Materialize() } | Out-Null
+      } else {
+        Invoke-ClipboardAction -Operation 'restore-previous-clipboard' -Action {
+          if ($owner.OwnsClipboard) {
+            Restore-ClipboardSnapshot -Snapshot $previousClipboard
+          }
+        } | Out-Null
+      }
     } catch {
-      # Clipboard restoration is best effort after dispatch.
+      # Clipboard restoration is best effort after dispatch, but never leave an
+      # unrendered item behind once this worker stops pumping messages.
+      try { Invoke-ClipboardAction -Operation 'keep-dictation' -Action { $owner.Materialize() } | Out-Null } catch { }
     }
     if ($previousClipboard -and $previousClipboard.ContainsKey('Image')) {
       $previousClipboard['Image'].Dispose()
